@@ -1,0 +1,17 @@
+[workspace]
+members = ["client", "common", "server"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+description = "A chat client and server for nerdserver"
+authors = ["Ethan Uppal"]
+rust-version = "1.79"
+edition = "2021"
+
+[workspace.dependencies]
+russh = "0.44.0"
+tokio = "1.38.0"
+anyhow = "1.0.86"
+common = { path = "common" }
+async-trait = "0.1.81"

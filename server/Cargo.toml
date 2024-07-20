@@ -1,0 +1,11 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+russh.workspace = true
+common.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
