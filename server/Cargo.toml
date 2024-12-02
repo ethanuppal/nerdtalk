@@ -10,3 +10,4 @@ futures-channel.workspace = true
 futures-util.workspace = true
 log.workspace = true
 env_logger.workspace = true
+tokio-rustls.workspace = true

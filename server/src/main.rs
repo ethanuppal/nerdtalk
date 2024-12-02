@@ -1,57 +1,87 @@
-//! A simple echo server.
-//!
-//! You can test this out by running:
-//!
-//!     cargo run --example echo-server 127.0.0.1:12345
-//!
-//! And then in another window run:
-//!
-//!     cargo run --example client ws://127.0.0.1:12345/
-//!
-//! Type a message into the client window, press enter to send it and
-//! see it echoed back.
-
-use std::{env, io::Error};
-
 use futures_util::{future, StreamExt, TryStreamExt};
 use log::info;
+use std::{env, fmt::Display, io::Error, sync::Arc};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::{
+    rustls::{crypto::CryptoProvider, RootCertStore, ServerConfig},
+    server::TlsStream,
+    TlsAcceptor
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    // Initialize logger
     let _ = env_logger::try_init();
+    // Configure TLS
+    let tls_config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(todo!(), todo!())
+        .map_err(std::io::Error::other)?;
+
+    let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
+
+    // Bind to address
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+        .unwrap_or_else(|| "127.0.0.1:8443".to_string());
 
-    // Create the event loop and TCP listener we'll accept connections on.
-    let try_socket = TcpListener::bind(&addr).await;
-    let listener = try_socket.expect("Failed to bind");
+    let listener = TcpListener::bind(&addr).await?;
     info!("Listening on: {}", addr);
 
-    while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(accept_connection(stream));
+    while let Ok((tcp_stream, _)) = listener.accept().await {
+        let tls_acceptor = tls_acceptor.clone();
+
+        let addr = tcp_stream.peer_addr()?;
+
+        // Spawn a task to handle the TLS connection
+        tokio::spawn(async move {
+            match tls_acceptor.accept(tcp_stream).await {
+                Ok(tls_stream) => {
+                    if let Err(e) =
+                        handle_tls_connection(tls_stream, addr).await
+                    {
+                        eprintln!("Error handling TLS connection: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("TLS handshake failed: {}", e);
+                }
+            }
+        });
     }
 
     Ok(())
 }
 
-async fn accept_connection(stream: TcpStream) {
-    let addr = stream
-        .peer_addr()
-        .expect("connected streams should have a peer address");
-    info!("Peer address: {}", addr);
-
-    let ws_stream = tokio_tungstenite::accept_async(stream)
-        .await
-        .expect("Error during the websocket handshake occurred");
+async fn handle_tls_connection<D: Display>(
+    tls_stream: TlsStream<TcpStream>, addr: D
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Convert TLS stream to WebSocket
+    let ws_stream = tokio_tungstenite::accept_async(tls_stream).await?;
 
     info!("New WebSocket connection: {}", addr);
 
     let (write, read) = ws_stream.split();
-    // We should not forward messages other than text or binary.
+
+    // Echo messages back
     read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
         .forward(write)
-        .await
-        .expect("Failed to forward messages")
+        .await?;
+
+    Ok(())
 }
+
+// // Helper functions to load certificates (you'll need to implement these)
+// fn load_cert_chain() -> Result<CertifiedKey, Box<dyn std::error::Error>> {
+//     // Load your certificate chain and private key
+//     // This is a placeholder - you'll need to provide real certificate
+// loading     // logic
+//     unimplemented!("Implement certificate chain loading")
+// }
+//
+// fn load_private_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+//     // Load your private key
+//     // This is a placeholder - you'll need to provide real private key
+// loading     // logic
+//     unimplemented!("Implement private key loading")
+// }

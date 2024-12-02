@@ -10,11 +10,25 @@
 //!
 //! You can use this example together with the `server` example.
 
-use std::env;
+use std::{env, sync::Arc};
 
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use tokio_rustls::rustls;
+use tokio_tungstenite::{
+    connect_async_tls_with_config, tungstenite::protocol::Message, Connector
+};
+
+fn build_tls_connector() -> Connector {
+    let root_store = rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned()
+    );
+
+    let tls_client_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    Connector::Rustls(Arc::new(tls_client_config))
+}
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +39,14 @@ async fn main() {
     let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
     tokio::spawn(read_stdin(stdin_tx));
 
-    let (ws_stream, _) = connect_async(&url).await.expect("Failed to connect");
+    let (ws_stream, _) = connect_async_tls_with_config(
+        &url,
+        Some(Default::default()),
+        false,
+        Some(build_tls_connector())
+    )
+    .await
+    .expect("Failed to connect");
     println!("WebSocket handshake has been successfully completed");
 
     let (write, read) = ws_stream.split();
