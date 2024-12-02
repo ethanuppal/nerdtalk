@@ -4,3 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-channel.workspace = true
+futures-util.workspace = true
+log.workspace = true
+env_logger.workspace = true

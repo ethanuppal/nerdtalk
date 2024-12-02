@@ -10,3 +10,13 @@ rust-version = "1.79"
 edition = "2021"
 
 [workspace.dependencies]
+tokio = { version = "1.41.1", features = [
+    "rt-multi-thread",
+    "macros",
+    "io-std",
+] }
+tokio-tungstenite = "0.24.0"
+futures-channel = "0.3.31"
+futures-util = "0.3.31"
+log = "0.4.22"
+env_logger = "0.11.5"
