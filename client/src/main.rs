@@ -1,7 +1,7 @@
-use std::{env, sync::Arc};
+use std::{env, sync::Arc, time::Duration};
 
 use futures_util::{future, pin_mut, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::protocol::Message, Connector,
@@ -69,14 +69,22 @@ async fn main() {
 // Our helper method which will read data from stdin and send it along the
 // sender provided.
 async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
-    let mut stdin = tokio::io::stdin();
+    let mut interval = tokio::time::interval(Duration::from_millis(100));
+    let mut stdin = BufReader::new(tokio::io::stdin());
     loop {
-        let mut buf = vec![0; 1024];
-        let n = match stdin.read(&mut buf).await {
-            Err(_) | Ok(0) => break,
-            Ok(n) => n,
-        };
-        buf.truncate(n);
-        tx.unbounded_send(Message::binary(buf)).unwrap();
+        let mut buf = String::new();
+        tokio::select! {
+            _ = interval.tick() => {
+                tx.unbounded_send(Message::Text("ping".into())).expect("failed to send");
+            },
+            input = stdin.read_line(&mut buf) => {
+                let n = match input {
+                    Err(_) | Ok(0) => break,
+                    Ok(n) => n,
+                };
+                buf.truncate(n);
+                tx.unbounded_send(Message::binary(buf)).unwrap();
+            }
+        }
     }
 }
