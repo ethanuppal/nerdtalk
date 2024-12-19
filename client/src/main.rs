@@ -1,19 +1,8 @@
-//! A simple example of hooking up stdin/stdout to a WebSocket stream.
-//!
-//! This example will connect to a server specified in the argument list and
-//! then forward all data read on stdin to the server, printing out all data
-//! received on stdout.
-//!
-//! Note that this is not currently optimized for performance, especially around
-//! buffer management. Rather it's intended to show an example of working with a
-//! client.
-//!
-//! You can use this example together with the `server` example.
+use std::{env, sync::Arc, time::Duration};
 
-use std::{env, sync::Arc};
-
+use comms::Codable;
 use futures_util::{future, pin_mut, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::protocol::Message, Connector,
@@ -23,7 +12,7 @@ use webpki::types::{pem::PemObject, CertificateDer};
 #[tokio::main]
 async fn main() {
     let url = env::args().nth(1).unwrap_or_else(|| {
-        panic!("Pass the server's wss// address as a command-line argument")
+        panic!("Pass the server's wss:// address as a command-line argument")
     });
 
     // We either load the local testing root certificates or we use those
@@ -70,7 +59,13 @@ async fn main() {
     let ws_to_stdout = {
         read.for_each(|message| async {
             let data = message.unwrap().into_data();
-            tokio::io::stdout().write_all(&data).await.unwrap();
+            let server_reply = comms::ServerReply::try_from_bytes(&data)
+                .expect("failed to decode server reply");
+            tokio::io::stdout()
+                .write_all(format!("{:?}\n", server_reply).as_bytes())
+                .await
+                .unwrap();
+            tokio::io::stdout().flush().await.unwrap();
         })
     };
 
@@ -81,14 +76,29 @@ async fn main() {
 // Our helper method which will read data from stdin and send it along the
 // sender provided.
 async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
-    let mut stdin = tokio::io::stdin();
+    let mut interval = tokio::time::interval(Duration::from_millis(100));
+    let mut stdin = BufReader::new(tokio::io::stdin());
     loop {
-        let mut buf = vec![0; 1024];
-        let n = match stdin.read(&mut buf).await {
-            Err(_) | Ok(0) => break,
-            Ok(n) => n,
-        };
-        buf.truncate(n);
-        tx.unbounded_send(Message::binary(buf)).unwrap();
+        let mut buf = String::new();
+        tokio::select! {
+            _ = interval.tick() => {
+                let ping = comms::ClientRequest::Ping {
+                    last_slot_number: 0,
+                };
+                tx.unbounded_send(Message::binary(ping.to_bytes())).expect("failed to send");
+            },
+            input = stdin.read_line(&mut buf) => {
+                let n = match input {
+                    Err(_) | Ok(0) => break,
+                    Ok(n) => n,
+                };
+                buf.truncate(n);
+                let append = comms::ClientRequest::Append {
+                    content: buf,
+                    sequence_number: 0
+                };
+                tx.unbounded_send(Message::binary(append.to_bytes())).unwrap();
+            }
+        }
     }
 }

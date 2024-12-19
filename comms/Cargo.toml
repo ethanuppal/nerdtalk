@@ -1,0 +1,11 @@
+[package]
+name = "comms"
+version.workspace = true
+description.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+bincode.workspace = true
