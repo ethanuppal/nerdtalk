@@ -11,10 +11,7 @@ env:
 
 jobs:
   lint:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-14, macos-13, macos-12]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Rust Caching
