@@ -16,19 +16,9 @@ use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::rustls;
 use tokio_tungstenite::{
-    connect_async_tls_with_config, tungstenite::protocol::Message, Connector
+    connect_async_tls_with_config, tungstenite::protocol::Message, Connector,
 };
-
-fn build_tls_connector() -> Connector {
-    let root_store = rustls::RootCertStore::from_iter(
-        webpki_roots::TLS_SERVER_ROOTS.iter().cloned()
-    );
-
-    let tls_client_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-    Connector::Rustls(Arc::new(tls_client_config))
-}
+use webpki::types::{pem::PemObject, CertificateDer};
 
 #[tokio::main]
 async fn main() {
@@ -36,18 +26,36 @@ async fn main() {
         panic!("this program requires at least one argument")
     });
 
-    let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
-    tokio::spawn(read_stdin(stdin_tx));
+    let mut root_store = rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+    );
+    root_store
+        .add(
+            CertificateDer::from_pem_slice(include_bytes!(
+                "../../cert/cert.pem"
+            ))
+            .expect("failed to load local testing certificate"),
+        )
+        .expect("failed to add local testing certificate");
+
+    let tls_client_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let tls_connector = Connector::Rustls(Arc::new(tls_client_config));
 
     let (ws_stream, _) = connect_async_tls_with_config(
         &url,
         Some(Default::default()),
         false,
-        Some(build_tls_connector())
+        Some(tls_connector),
     )
     .await
     .expect("Failed to connect");
     println!("WebSocket handshake has been successfully completed");
+
+    let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
+    tokio::spawn(read_stdin(stdin_tx));
 
     let (write, read) = ws_stream.split();
 

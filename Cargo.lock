@@ -215,6 +215,7 @@ version = "0.0.0"
 dependencies = [
  "futures-channel",
  "futures-util",
+ "rustls-webpki",
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",

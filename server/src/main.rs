@@ -3,19 +3,29 @@ use log::info;
 use std::{env, fmt::Display, io::Error, sync::Arc};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{
-    rustls::{crypto::CryptoProvider, RootCertStore, ServerConfig},
+    rustls::{
+        crypto::CryptoProvider,
+        pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
+        RootCertStore, ServerConfig,
+    },
     server::TlsStream,
-    TlsAcceptor
+    TlsAcceptor,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Initialize logger
     let _ = env_logger::try_init();
-    // Configure TLS
+
+    let local_testing_certificate =
+        CertificateDer::from_pem_slice(include_bytes!("../../cert/cert.pem"))
+            .expect("failed to load local testing certificate");
+    let local_testing_key =
+        PrivateKeyDer::from_pem_slice(include_bytes!("../../cert/key.pem"))
+            .expect("failed to load local testing key");
+
     let tls_config = ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(todo!(), todo!())
+        .with_single_cert(vec![local_testing_certificate], local_testing_key)
         .map_err(std::io::Error::other)?;
 
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
@@ -54,7 +64,8 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn handle_tls_connection<D: Display>(
-    tls_stream: TlsStream<TcpStream>, addr: D
+    tls_stream: TlsStream<TcpStream>,
+    addr: D,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Convert TLS stream to WebSocket
     let ws_stream = tokio_tungstenite::accept_async(tls_stream).await?;

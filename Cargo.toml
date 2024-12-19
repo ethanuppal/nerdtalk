@@ -27,3 +27,5 @@ env_logger = "0.11.5"
 # version pains later.
 tokio-rustls = "0.26.0"
 webpki-roots = "0.26.7"
+
+rustls-webpki = "0.102.8"
