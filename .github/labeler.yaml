@@ -6,10 +6,6 @@
   - changed-files:
       - any-glob-to-any-file: "server/**"
 
-"Code: Common":
-  - changed-files:
-      - any-glob-to-any-file: "common/**"
-
 "Infra: CI":
   - changed-files:
       - any-glob-to-any-file: ".github/workflows/*"

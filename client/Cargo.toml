@@ -8,3 +8,9 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-channel.workspace = true
 futures-util.workspace = true
+tokio-rustls.workspace = true
+webpki-roots.workspace = true
+rustls-webpki.workspace = true
+
+[features]
+local = []
