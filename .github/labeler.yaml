@@ -6,9 +6,9 @@
   - changed-files:
       - any-glob-to-any-file: "server/**"
 
-"Code: Messages":
+"Code: Protocol":
   - changed-files:
-      - any-glob-to-any-file: "message/**"
+      - any-glob-to-any-file: "comms/**"
 
 "Infra: CI":
   - changed-files:
