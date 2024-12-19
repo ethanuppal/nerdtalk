@@ -22,10 +22,9 @@ async fn main() -> Result<(), Error> {
         CertificateDer::from_pem_slice(include_bytes!("../../cert/cert.pem"))
             .expect("failed to load local testing certificate");
 
-    let local_testing_key = PrivateKeyDer::from_pem_slice(include_bytes!(
-            "../../cert/server.key.pem"
-        ))
-        .expect("failed to load local testing key");
+    let local_testing_key =
+        PrivateKeyDer::from_pem_slice(include_bytes!("../../cert/key.pem"))
+            .expect("failed to load local testing key");
 
     let tls_config = ServerConfig::builder()
         .with_no_client_auth()
@@ -79,10 +78,11 @@ async fn handle_tls_connection<D: Display>(
     let (write, read) = ws_stream.split();
 
     // Echo messages back
-    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary())).map(|msg| {
-        info!("Received a message: {:?}", msg);
-        msg
-    })
+    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
+        .map(|msg| {
+            info!("Received a message: {:?}", msg);
+            msg
+        })
         .forward(write)
         .await?;
 
