@@ -1,15 +1,3 @@
-//! A simple example of hooking up stdin/stdout to a WebSocket stream.
-//!
-//! This example will connect to a server specified in the argument list and
-//! then forward all data read on stdin to the server, printing out all data
-//! received on stdout.
-//!
-//! Note that this is not currently optimized for performance, especially around
-//! buffer management. Rather it's intended to show an example of working with a
-//! client.
-//!
-//! You can use this example together with the `server` example.
-
 use std::{env, sync::Arc};
 
 use futures_util::{future, pin_mut, StreamExt};
@@ -23,7 +11,7 @@ use webpki::types::{pem::PemObject, CertificateDer};
 #[tokio::main]
 async fn main() {
     let url = env::args().nth(1).unwrap_or_else(|| {
-        panic!("Pass the server's wss// address as a command-line argument")
+        panic!("Pass the server's wss:// address as a command-line argument")
     });
 
     // We either load the local testing root certificates or we use those
