@@ -50,7 +50,7 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
         let mut buf = vec![0; 1024];
         let n = match stdin.read(&mut buf).await {
             Err(_) | Ok(0) => break,
-            Ok(n) => n
+            Ok(n) => n,
         };
         buf.truncate(n);
         tx.unbounded_send(Message::binary(buf)).unwrap();

@@ -10,11 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build_and_test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-14, macos-13, macos-12]
-    runs-on: ${{ matrix.os }}
+  lint:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Rust Caching
@@ -23,3 +20,5 @@ jobs:
         run: cargo build
       - name: Lint
         run: cargo clippy
+      - name: Check formatting
+        run: cargo fmt --check
