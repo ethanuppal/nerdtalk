@@ -26,17 +26,21 @@ async fn main() {
         panic!("this program requires at least one argument")
     });
 
-    let mut root_store = rustls::RootCertStore::from_iter(
-        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-    );
-    root_store
-        .add(
-            CertificateDer::from_pem_slice(include_bytes!(
-                "../../cert/cert.pem"
-            ))
-            .expect("failed to load local testing certificate"),
-        )
-        .expect("failed to add local testing certificate");
+    let mut root_store =rustls::RootCertStore::empty(); // rustls::RootCertStore::from_iter(
+        //webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+    //);
+    // root_store
+    //     .add(
+    //         CertificateDer::from_pem_slice(include_bytes!(
+    //             "../../cert/root-ca.pem"
+    //         ))
+    //         .expect("failed to load local testing certificate"),
+    //     )
+    //     .expect("failed to add local testing certificate");
+
+    for cert in CertificateDer::pem_file_iter("cert/root-ca.pem").expect("failed to load root CA file") {
+        root_store.add(cert.expect("failed to load sub file ig")).unwrap();
+    }
 
     let tls_client_config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)

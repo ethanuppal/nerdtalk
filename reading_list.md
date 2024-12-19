@@ -7,3 +7,7 @@
      ```
 
      the passphase I used was "test"
+
+
+gencert2.sh:
+- https://github.com/rustls/tokio-rustls/blob/0184703291746c4875d98456c4ccaca58c25521e/scripts/generate-certificate.sh

@@ -5,7 +5,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{
     rustls::{
         crypto::CryptoProvider,
-        pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
+        pki_types::{
+            pem::PemObject, CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer,
+        },
         RootCertStore, ServerConfig,
     },
     server::TlsStream,
@@ -19,9 +21,11 @@ async fn main() -> Result<(), Error> {
     let local_testing_certificate =
         CertificateDer::from_pem_slice(include_bytes!("../../cert/cert.pem"))
             .expect("failed to load local testing certificate");
-    let local_testing_key =
-        PrivateKeyDer::from_pem_slice(include_bytes!("../../cert/key.pem"))
-            .expect("failed to load local testing key");
+
+    let local_testing_key = PrivateKeyDer::from_pem_slice(include_bytes!(
+            "../../cert/server.key.pem"
+        ))
+        .expect("failed to load local testing key");
 
     let tls_config = ServerConfig::builder()
         .with_no_client_auth()
@@ -75,7 +79,10 @@ async fn handle_tls_connection<D: Display>(
     let (write, read) = ws_stream.split();
 
     // Echo messages back
-    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
+    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary())).map(|msg| {
+        info!("Received a message: {:?}", msg);
+        msg
+    })
         .forward(write)
         .await?;
 
