@@ -1,5 +1,5 @@
 [workspace]
-members = ["client", "common", "server"]
+members = ["client", "server"]
 resolver = "2"
 
 [workspace.package]
@@ -10,12 +10,12 @@ rust-version = "1.79"
 edition = "2021"
 
 [workspace.dependencies]
-tokio = { version = "1.41.1", features = [
+tokio = { version = "1.42.0", features = [
     "rt-multi-thread",
     "macros",
     "io-std",
 ] }
-tokio-tungstenite = { version = "0.24.0", features = [
+tokio-tungstenite = { version = "0.26.0", features = [
     "rustls-tls-native-roots",
 ] }
 futures-channel = "0.3.31"
@@ -25,7 +25,7 @@ env_logger = "0.11.5"
 
 # I hate this. Why can't tungstenite reexport this? Definitely going to cause
 # version pains later.
-tokio-rustls = "0.26.0"
+tokio-rustls = "0.26.1"
 webpki-roots = "0.26.7"
 
 rustls-webpki = "0.102.8"

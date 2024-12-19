@@ -14,7 +14,7 @@ use std::{env, sync::Arc};
 
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_rustls::rustls;
+use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::protocol::Message, Connector,
 };
@@ -23,31 +23,28 @@ use webpki::types::{pem::PemObject, CertificateDer};
 #[tokio::main]
 async fn main() {
     let url = env::args().nth(1).unwrap_or_else(|| {
-        panic!("this program requires at least one argument")
+        panic!("Pass the server's wss// address as a command-line argument")
     });
 
-    let mut root_store = rustls::RootCertStore::empty();
-    // rustls::RootCertStore::from_iter(
-    //webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-    //);
-    // root_store
-    //     .add(
-    //         CertificateDer::from_pem_slice(include_bytes!(
-    //             "../../cert/root-ca.pem"
-    //         ))
-    //         .expect("failed to load local testing certificate"),
-    //     )
-    //     .expect("failed to add local testing certificate");
-
-    for cert in CertificateDer::pem_file_iter("cert/rootCA.crt")
-        .expect("failed to load root CA file")
-    {
-        root_store
-            .add(cert.expect("failed to load sub file ig"))
-            .unwrap();
+    // We either load the local testing root certificates or we use those
+    // trusted by Mozilla.
+    let mut root_store;
+    if cfg!(feature = "local") {
+        root_store = tls::RootCertStore::empty();
+        for cert in CertificateDer::pem_file_iter("testing_cert/rootCA.crt")
+            .expect("Did you remember to run ./gen_cert.sh for local testing?")
+        {
+            root_store
+                .add(cert.expect("failed to load sub file ig"))
+                .expect("failed to add local testing certificate");
+        }
+    } else {
+        root_store = tls::RootCertStore::from_iter(
+            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+        );
     }
 
-    let tls_client_config = rustls::ClientConfig::builder()
+    let tls_client_config = tls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_no_client_auth();
 
@@ -60,7 +57,8 @@ async fn main() {
         Some(tls_connector),
     )
     .await
-    .expect("Failed to connect");
+    .expect("Failed to connect to server");
+
     println!("WebSocket handshake has been successfully completed");
 
     let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();

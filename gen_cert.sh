@@ -1,8 +1,13 @@
 #!/bin/sh
 
-# https://stackoverflow.com/questions/76049656/unexpected-notvalidforname-with-rusts-tonic-with-tls
+FOLDER=testing_cert
 
-FOLDER=cert
+echo WARNING: THIS SCRIPT IS ONLY FOR LOCAL TESTING
+echo PRESS ENTER TO PROCEED
+echo "(This script will clear and replace the contents of the $FOLDER/ directory)"
+read
+
+# https://stackoverflow.com/questions/76049656/unexpected-notvalidforname-with-rusts-tonic-with-tls
 
 rm -f $FOLDER/*
 mkdir -p $FOLDER

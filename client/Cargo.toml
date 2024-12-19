@@ -11,3 +11,6 @@ futures-util.workspace = true
 tokio-rustls.workspace = true
 webpki-roots.workspace = true
 rustls-webpki.workspace = true
+
+[features]
+local = []
