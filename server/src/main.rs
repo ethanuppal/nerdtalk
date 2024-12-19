@@ -1,5 +1,6 @@
 use std::{env, fmt::Display, io::Error, sync::Arc};
 
+use comms::Codable;
 use futures_util::{future, StreamExt, TryStreamExt};
 use log::info;
 use tokio::net::{TcpListener, TcpStream};
@@ -11,6 +12,7 @@ use tokio_rustls::{
     server::TlsStream,
     TlsAcceptor,
 };
+use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -83,7 +85,12 @@ async fn handle_tls_connection<D: Display>(
     // Echo messages back
     read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
         .map(|msg| {
-            println!("Received a message: {:?}", msg);
+            if let Ok(Message::Binary(data)) = &msg {
+                println!(
+                    "Received a message: {:?}",
+                    comms::ClientRequest::from_bytes(data)
+                );
+            }
             msg
         })
         .forward(write)

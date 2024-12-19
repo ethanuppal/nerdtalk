@@ -1,7 +1,8 @@
 use std::{env, sync::Arc, time::Duration};
 
+use comms::Codable;
 use futures_util::{future, pin_mut, StreamExt};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::protocol::Message, Connector,
@@ -75,7 +76,10 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
         let mut buf = String::new();
         tokio::select! {
             _ = interval.tick() => {
-                tx.unbounded_send(Message::Text("ping".into())).expect("failed to send");
+                let ping = comms::ClientRequest::Ping{
+                    last_slot_number: 0,
+                };
+                tx.unbounded_send(Message::binary(ping.to_bytes())).expect("failed to send");
             },
             input = stdin.read_line(&mut buf) => {
                 let n = match input {
@@ -83,7 +87,11 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
                     Ok(n) => n,
                 };
                 buf.truncate(n);
-                tx.unbounded_send(Message::binary(buf)).unwrap();
+                let append = comms::ClientRequest::Append {
+                    content: buf,
+                    sequence_number: 0
+                };
+                tx.unbounded_send(Message::binary(append.to_bytes())).unwrap();
             }
         }
     }
