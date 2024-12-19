@@ -8,7 +8,7 @@ pub trait Codable {
         bincode::serialize(self).expect("failed to serialize data")
     }
 
-    fn from_bytes<'a>(bytes: &'a [u8]) -> bincode::Result<Self>
+    fn try_from_bytes<'a>(bytes: &'a [u8]) -> bincode::Result<Self>
     where
         Self: Deserialize<'a>,
     {
@@ -28,3 +28,14 @@ pub enum ClientRequest {
 }
 
 impl Codable for ClientRequest {}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ServerReply {
+    AppendPending,
+    Pong {
+        client_last_slot_number: usize,
+        missing: Vec<String>,
+    },
+}
+
+impl Codable for ServerReply {}

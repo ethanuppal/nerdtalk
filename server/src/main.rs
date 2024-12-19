@@ -83,18 +83,29 @@ async fn handle_tls_connection<D: Display>(
     let (write, read) = ws_stream.split();
 
     // Echo messages back
-    read.try_filter(|msg| future::ready(msg.is_text() || msg.is_binary()))
-        .map(|msg| {
-            if let Ok(Message::Binary(data)) = &msg {
-                println!(
-                    "Received a message: {:?}",
-                    comms::ClientRequest::from_bytes(data)
-                );
-            }
-            msg
-        })
-        .forward(write)
-        .await?;
+    read.map(|msg| match msg {
+        Ok(Message::Binary(data)) => {
+            let client_request = comms::ClientRequest::try_from_bytes(&data)
+                .expect("failed to decode client request");
+            let server_reply = match client_request {
+                comms::ClientRequest::Append {
+                    content,
+                    sequence_number,
+                } => comms::ServerReply::AppendPending,
+                comms::ClientRequest::Ping { last_slot_number } => {
+                    comms::ServerReply::Pong {
+                        client_last_slot_number: last_slot_number,
+                        missing: vec![],
+                    }
+                }
+            };
+            Ok(Message::binary(server_reply.to_bytes()))
+        }
+        Err(e) => panic!(),
+        other => panic!("server got non binary data: {:?}", other),
+    })
+    .forward(write)
+    .await?;
 
     Ok(())
 }

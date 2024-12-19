@@ -59,7 +59,13 @@ async fn main() {
     let ws_to_stdout = {
         read.for_each(|message| async {
             let data = message.unwrap().into_data();
-            tokio::io::stdout().write_all(&data).await.unwrap();
+            let server_reply = comms::ServerReply::try_from_bytes(&data)
+                .expect("failed to decode server reply");
+            tokio::io::stdout()
+                .write_all(format!("{:?}\n", server_reply).as_bytes())
+                .await
+                .unwrap();
+            tokio::io::stdout().flush().await.unwrap();
         })
     };
 
@@ -76,7 +82,7 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
         let mut buf = String::new();
         tokio::select! {
             _ = interval.tick() => {
-                let ping = comms::ClientRequest::Ping{
+                let ping = comms::ClientRequest::Ping {
                     last_slot_number: 0,
                 };
                 tx.unbounded_send(Message::binary(ping.to_bytes())).expect("failed to send");
