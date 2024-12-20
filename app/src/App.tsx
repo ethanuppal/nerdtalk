@@ -4,7 +4,7 @@ import MessageLog from "@components/MessageLog";
 
 function App() {
   return (
-    <main>
+    <main className="p-2">
       <MessageLog />
 
       {/* Text input */}
