@@ -47,6 +47,7 @@ pub struct App {
     mode: Mode,
     exit: bool,
     scroll_offset: u16,
+    cursor_pos: usize,
 }
 
 impl Default for App {
@@ -60,6 +61,7 @@ impl Default for App {
             mode: Mode::Insert,
             exit: false,
             scroll_offset: 0,
+            cursor_pos: 0,
         }
     }
 }
@@ -74,23 +76,34 @@ impl App {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         let size = frame.area();
 
-        // Layout:
-        // ┌───────────────────────┐
-        // │       MESSAGES         │
-        // │       (scrollable)     │
-        // ├───────────────────────┤
-        // │          INPUT         │
-        // └───────────────────────┘
+
+        let available_width_for_text = if size.width > 5 {
+            size.width - 5
+        } else {
+            1 // fallback if terminal very narrow
+        };
+
+        let line_count = if self.input.is_empty() {
+            1
+        } else {
+            (self.input.len() as u16 + available_width_for_text - 1) / available_width_for_text
+        };
+
+        // We add 2 for the borders. line_count is the number of wrapped lines.
+        let required_height = line_count + 2;
+        // Ensure at least height 3
+        let input_height = required_height.max(3);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(3)])
+            .constraints([Constraint::Min(1), Constraint::Length(input_height)])
             .split(size);
 
         self.draw_messages_area(frame, chunks[0]);
-        self.draw_input_area(frame, chunks[1]);
+        self.draw_input_area(frame, chunks[1], available_width_for_text);
     }
 
     fn draw_messages_area(&self, frame: &mut Frame, area: Rect) {
@@ -100,11 +113,9 @@ impl App {
             .map(|msg| Line::from(Span::raw(msg)))
             .collect();
 
-        // Calculate how many lines can fit inside the paragraph area
         let inner_height = area.height.saturating_sub(2);
         let total_lines = text_lines.len() as u16;
 
-        // Ensure scroll_offset doesn't exceed what we have
         let max_scroll = total_lines.saturating_sub(inner_height);
         let scroll_offset = self.scroll_offset.min(max_scroll);
 
@@ -119,7 +130,6 @@ impl App {
             .wrap(Wrap { trim: true })
             .scroll((scroll_offset, 0));
 
-        // Create a layout for the messages area that includes a narrow column for the scrollbar
         let message_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -127,10 +137,8 @@ impl App {
 
         frame.render_widget(messages_paragraph, message_chunks[0]);
 
-        // Draw a vertical scrollbar in message_chunks[1] if needed
         if total_lines > inner_height {
-            let scrollbar_inner_height =
-                message_chunks[1].height.saturating_sub(2);
+            let scrollbar_inner_height = message_chunks[1].height.saturating_sub(2);
             let thumb_pos = if max_scroll == 0 {
                 0
             } else {
@@ -146,8 +154,8 @@ impl App {
                 }
             }
 
-            let scrollbar_paragraph =
-                Paragraph::new(Text::from(scrollbar_text)).block(
+            let scrollbar_paragraph = Paragraph::new(Text::from(scrollbar_text))
+                .block(
                     Block::default()
                         .borders(Borders::LEFT | Borders::RIGHT)
                         .border_set(border::THICK),
@@ -155,20 +163,22 @@ impl App {
 
             frame.render_widget(scrollbar_paragraph, message_chunks[1]);
         } else {
-            // If no scrolling needed, just draw borders
-            let empty_scrollbar = Paragraph::new("").block(
-                Block::default()
-                    .borders(Borders::LEFT | Borders::RIGHT)
-                    .border_set(border::THICK),
-            );
+            let empty_scrollbar = Paragraph::new("")
+                .block(
+                    Block::default()
+                        .borders(Borders::LEFT | Borders::RIGHT)
+                        .border_set(border::THICK),
+                );
             frame.render_widget(empty_scrollbar, message_chunks[1]);
         }
     }
 
-    fn draw_input_area(&self, frame: &mut Frame, area: Rect) {
-        // Divide the input area into two horizontal chunks:
-        // Left: main input field
-        // Right: mode indicator
+    fn draw_input_area(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        available_width_for_text: u16,
+    ) {
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -202,11 +212,20 @@ impl App {
         frame.render_widget(input_paragraph, input_chunks[0]);
         frame.render_widget(mode_paragraph, input_chunks[1]);
 
-        // Set the cursor position.
-        // In Insert mode, place it at the end of the input.
-        // In Normal mode, place it at the start of the input line.
-        let cursor_x = input_chunks[0].x + 1 + self.input.len() as u16;
-        let cursor_y = input_chunks[0].y + 1;
+        let line_index = if available_width_for_text > 0 {
+            self.cursor_pos as u16 / available_width_for_text
+        } else {
+            0
+        };
+        let col_index = if available_width_for_text > 0 {
+            self.cursor_pos as u16 % available_width_for_text
+        } else {
+            0
+        };
+
+        let cursor_x = input_chunks[0].x + 1 + col_index;
+        let cursor_y = input_chunks[0].y + 1 + line_index;
+
         frame.set_cursor_position((cursor_x, cursor_y));
     }
 
@@ -237,17 +256,60 @@ impl App {
         }
     }
 
+    /// Implemented keys: q, i, I, a, A, j, k, h, l, x, w, b
     fn handle_key_event_normal_mode(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
-            KeyCode::Char('i') | KeyCode::Char('a') => {
+            KeyCode::Char('i') => {
                 self.mode = Mode::Insert;
+            }
+            KeyCode::Char('I') => {
+                self.mode = Mode::Insert;
+                self.cursor_pos = 0;
+            }
+            KeyCode::Char('a') => {
+                self.mode = Mode::Insert;
+                self.cursor_pos += 1;
+            }
+            KeyCode::Char('A') => {
+                self.mode = Mode::Insert;
+                self.cursor_pos = self.input.len();
             }
             KeyCode::Char('j') => {
                 self.scroll_down(1);
             }
             KeyCode::Char('k') => {
                 self.scroll_up(1);
+            }
+            KeyCode::Char('h') => {
+                if self.cursor_pos > 0 {
+                    self.cursor_pos -= 1;
+                }
+            }
+            KeyCode::Char('l') => {
+                if self.cursor_pos < self.input.len() {
+                    self.cursor_pos += 1;
+                }
+            }
+            KeyCode::Char('x') => {
+                if self.cursor_pos < self.input.len() {
+                    self.input.remove(self.cursor_pos);
+                }
+            }
+            // acts more like 'W' than 'w', I'll deal with this later (it's a regex I'm too lazy to write)
+            KeyCode::Char('w') => {
+                let next_space = self.input[self.cursor_pos..]
+                    .find(' ')
+                    .map(|pos| pos + self.cursor_pos + 1)
+                    .unwrap_or(self.input.len());
+                self.cursor_pos = next_space;
+            }
+            // ditto lol
+            KeyCode::Char('b') => {
+                let prev_space = self.input[..self.cursor_pos]
+                    .rfind(' ')
+                    .unwrap_or(0);
+                self.cursor_pos = prev_space;
             }
             _ => {}
         }
@@ -260,10 +322,14 @@ impl App {
             }
             KeyCode::Enter => self.send_message(),
             KeyCode::Backspace => {
-                self.input.pop();
+                if self.cursor_pos > 0 {
+                    self.cursor_pos -= 1;
+                    self.input.remove(self.cursor_pos);
+                }
             }
             KeyCode::Char(c) => {
-                self.input.push(c);
+                self.input.insert(self.cursor_pos, c);
+                self.cursor_pos += 1;
             }
             _ => {}
         }
@@ -291,6 +357,7 @@ impl App {
             self.messages.push(trimmed.to_string());
         }
         self.input.clear();
+        self.cursor_pos = 0;
         self.scroll_to_bottom();
     }
 
