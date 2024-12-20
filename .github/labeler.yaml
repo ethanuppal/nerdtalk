@@ -10,6 +10,10 @@
   - changed-files:
       - any-glob-to-any-file: "comms/**"
 
+"Code: Web App":
+  - changed-files:
+      - any-glob-to-any-file: "app/**"
+
 "Infra: CI":
   - changed-files:
       - any-glob-to-any-file: ".github/workflows/*"
