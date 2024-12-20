@@ -19,7 +19,7 @@ export default function MessageLog() {
   }, []);
 
   return (
-    <div>
+    <div className="flex-grow bg-secondary-color border rounded flex flex-col gap-1 p-1">
       {log.map((message) => (
         <TextBox timestamp={message.timestamp} messageBody={message.body} />
       ))}
