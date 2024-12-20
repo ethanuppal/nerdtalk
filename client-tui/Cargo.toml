@@ -1,0 +1,12 @@
+[package]
+name = "client-tui"
+version.workspace = true
+description.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
+[dependencies]
+client.workspace = true
+tokio.workspace = true
+ratatui.workspace = true

@@ -246,12 +246,20 @@ dependencies = [
  "comms",
  "futures-channel",
  "futures-util",
- "ratatui",
  "rustls-webpki",
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
  "webpki-roots",
+]
+
+[[package]]
+name = "client-tui"
+version = "0.0.0"
+dependencies = [
+ "client",
+ "ratatui",
+ "tokio",
 ]
 
 [[package]]

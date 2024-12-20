@@ -12,7 +12,6 @@ tokio-rustls.workspace = true
 webpki-roots.workspace = true
 rustls-webpki.workspace = true
 comms.workspace = true
-ratatui.workspace = true
 
 [features]
 local = []

@@ -31,7 +31,7 @@ impl Codable for ClientRequest {}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ServerReply {
-    AppendPending,
+    AppendAck,
     Pong {
         client_last_slot_number: usize,
         missing: Vec<String>,

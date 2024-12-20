@@ -91,7 +91,7 @@ async fn handle_tls_connection<D: Display>(
                 comms::ClientRequest::Append {
                     content,
                     sequence_number,
-                } => comms::ServerReply::AppendPending,
+                } => comms::ServerReply::AppendAck,
                 comms::ClientRequest::Ping { last_slot_number } => {
                     comms::ServerReply::Pong {
                         client_last_slot_number: last_slot_number,
