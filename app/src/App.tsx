@@ -1,13 +1,14 @@
 // import "./App.css";
 
+import InputBox from "@components/InputBox";
 import MessageLog from "@components/MessageLog";
 
 function App() {
   return (
-    <main className="p-2">
+    <main className="h-screen flex flex-col gap-2 p-2">
       <MessageLog />
 
-      {/* Text input */}
+      <InputBox />
     </main>
   );
 }
