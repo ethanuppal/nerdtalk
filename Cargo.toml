@@ -1,5 +1,5 @@
 [workspace]
-members = ["client", "client-tui", "comms", "server"]
+members = ["client-tui", "comms", "server"]
 resolver = "2"
 
 [workspace.package]
@@ -41,3 +41,5 @@ syn = "2.0.90"
 quote = "1.0.37"
 
 ratatui = "0.29.0"
+color-eyre = "0.6.3"
+crossterm = "0.28.1"

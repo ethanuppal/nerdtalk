@@ -10,6 +10,10 @@
   - changed-files:
       - any-glob-to-any-file: "comms/**"
 
+"Code: TUI":
+  - changed-files:
+      - any-glob-to-any-file: "client-tui/**"
+
 "Infra: CI":
   - changed-files:
       - any-glob-to-any-file: ".github/workflows/*"
