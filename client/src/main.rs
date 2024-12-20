@@ -2,21 +2,23 @@ use std::{env, sync::Arc, time::Duration};
 
 use comms::Codable;
 use futures_util::{future, pin_mut, StreamExt};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
+};
 use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::protocol::Message, Connector,
+    MaybeTlsStream, WebSocketStream,
 };
 use webpki::types::{pem::PemObject, CertificateDer};
 
-#[tokio::main]
-async fn main() {
+/// Connect to the server and return the WebSocket stream.
+async fn setup_ws() -> WebSocketStream<MaybeTlsStream<TcpStream>> {
     let url = env::args().nth(1).unwrap_or_else(|| {
         panic!("Pass the server's wss:// address as a command-line argument")
     });
 
-    // We either load the local testing root certificates or we use those
-    // trusted by Mozilla.
     let mut root_store;
     if cfg!(feature = "local") {
         root_store = tls::RootCertStore::empty();
@@ -48,10 +50,15 @@ async fn main() {
     .await
     .expect("Failed to connect to server");
 
-    println!("WebSocket handshake has been successfully completed");
+    ws_stream
+}
 
+#[tokio::main]
+async fn main() {
     let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
     tokio::spawn(read_stdin(stdin_tx));
+
+    let ws_stream = setup_ws().await;
 
     let (write, read) = ws_stream.split();
 
