@@ -3,7 +3,10 @@
 use color_eyre::Result;
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    event::{
+        self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent,
+        MouseEventKind,
+    },
     terminal::enable_raw_mode,
     ExecutableCommand,
 };
@@ -43,6 +46,7 @@ pub struct App {
     input: String,
     mode: Mode,
     exit: bool,
+    scroll_offset: u16,
 }
 
 impl Default for App {
@@ -55,6 +59,7 @@ impl Default for App {
             input: String::new(),
             mode: Mode::Insert,
             exit: false,
+            scroll_offset: 0,
         }
     }
 }
@@ -89,13 +94,21 @@ impl App {
     }
 
     fn draw_messages_area(&self, frame: &mut Frame, area: Rect) {
-        let text = self
+        let text_lines: Vec<Line> = self
             .messages
             .iter()
             .map(|msg| Line::from(Span::raw(msg)))
-            .collect::<Vec<Line>>();
+            .collect();
 
-        let messages_paragraph = Paragraph::new(Text::from(text))
+        // Calculate how many lines can fit inside the paragraph area
+        let inner_height = area.height.saturating_sub(2);
+        let total_lines = text_lines.len() as u16;
+
+        // Ensure scroll_offset doesn't exceed what we have
+        let max_scroll = total_lines.saturating_sub(inner_height);
+        let scroll_offset = self.scroll_offset.min(max_scroll);
+
+        let messages_paragraph = Paragraph::new(Text::from(text_lines))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -103,9 +116,53 @@ impl App {
                     .border_style(ratatui::style::Style::default())
                     .border_set(border::THICK),
             )
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: true })
+            .scroll((scroll_offset, 0));
 
-        frame.render_widget(messages_paragraph, area);
+        // Create a layout for the messages area that includes a narrow column for the scrollbar
+        let message_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+
+        frame.render_widget(messages_paragraph, message_chunks[0]);
+
+        // Draw a vertical scrollbar in message_chunks[1] if needed
+        if total_lines > inner_height {
+            let scrollbar_inner_height =
+                message_chunks[1].height.saturating_sub(2);
+            let thumb_pos = if max_scroll == 0 {
+                0
+            } else {
+                scroll_offset * scrollbar_inner_height / max_scroll
+            };
+
+            let mut scrollbar_text = Vec::new();
+            for i in 0..scrollbar_inner_height {
+                if i == thumb_pos {
+                    scrollbar_text.push(Line::from("█"));
+                } else {
+                    scrollbar_text.push(Line::from(" "));
+                }
+            }
+
+            let scrollbar_paragraph =
+                Paragraph::new(Text::from(scrollbar_text)).block(
+                    Block::default()
+                        .borders(Borders::LEFT | Borders::RIGHT)
+                        .border_set(border::THICK),
+                );
+
+            frame.render_widget(scrollbar_paragraph, message_chunks[1]);
+        } else {
+            // If no scrolling needed, just draw borders
+            let empty_scrollbar = Paragraph::new("").block(
+                Block::default()
+                    .borders(Borders::LEFT | Borders::RIGHT)
+                    .border_set(border::THICK),
+            );
+            frame.render_widget(empty_scrollbar, message_chunks[1]);
+        }
     }
 
     fn draw_input_area(&self, frame: &mut Frame, area: Rect) {
@@ -145,6 +202,9 @@ impl App {
         frame.render_widget(input_paragraph, input_chunks[0]);
         frame.render_widget(mode_paragraph, input_chunks[1]);
 
+        // Set the cursor position.
+        // In Insert mode, place it at the end of the input.
+        // In Normal mode, place it at the start of the input line.
         let cursor_x = input_chunks[0].x + 1 + self.input.len() as u16;
         let cursor_y = input_chunks[0].y + 1;
         frame.set_cursor_position((cursor_x, cursor_y));
@@ -155,12 +215,16 @@ impl App {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 self.handle_key_event(key_event);
             }
+            Event::Mouse(mouse_event) => {
+                self.handle_mouse_event(mouse_event);
+            }
             _ => {}
         }
 
-        // TODO: Handle incoming messages from the server.
+        // TODO: Handle incoming messages from server:
         // while let Ok(msg) = self.rx.try_recv() {
         //     self.messages.push(msg);
+        //     self.scroll_to_bottom();
         // }
 
         Ok(())
@@ -178,6 +242,12 @@ impl App {
             KeyCode::Char('q') => self.exit(),
             KeyCode::Char('i') | KeyCode::Char('a') => {
                 self.mode = Mode::Insert;
+            }
+            KeyCode::Char('j') => {
+                self.scroll_down(1);
+            }
+            KeyCode::Char('k') => {
+                self.scroll_up(1);
             }
             _ => {}
         }
@@ -199,6 +269,18 @@ impl App {
         }
     }
 
+    fn handle_mouse_event(&mut self, mouse_event: MouseEvent) {
+        match mouse_event.kind {
+            MouseEventKind::ScrollUp => {
+                self.scroll_up(1);
+            }
+            MouseEventKind::ScrollDown => {
+                self.scroll_down(1);
+            }
+            _ => {}
+        }
+    }
+
     fn exit(&mut self) {
         self.exit = true;
     }
@@ -209,6 +291,21 @@ impl App {
             self.messages.push(trimmed.to_string());
         }
         self.input.clear();
+        self.scroll_to_bottom();
+    }
+
+    fn scroll_to_bottom(&mut self) {
+        let total_lines = self.messages.len() as u16;
+        self.scroll_offset = total_lines;
+    }
+
+    fn scroll_up(&mut self, lines: u16) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(lines);
+    }
+
+    fn scroll_down(&mut self, lines: u16) {
+        let total_lines = self.messages.len() as u16;
+        self.scroll_offset = (self.scroll_offset + lines).min(total_lines);
     }
 
     fn update_cursor_shape(
