@@ -1,3 +1,4 @@
+//use std::env;
 use color_eyre::Result;
 use copypasta::ClipboardContext;
 use crossterm::{
@@ -22,6 +23,9 @@ use vim::{Mode, VimCmd};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // let url = env::args().nth(1).unwrap_or_else(|| {
+    //     panic!("Pass the server's wss:// address as a command-line argument")
+    // });
     enable_raw_mode()?; // Ensure raw mode is enabled for cursor shape changes
 
     let mut terminal = ratatui::init();
@@ -40,8 +44,8 @@ pub struct App {
     scroll_offset: u16,
     cursor_pos: usize,
     normal_mode_buffer: String,
-    /// The clipboard context for yank/delete/paste
     clipboard: ClipboardContext,
+    undo_stack: Vec<String>,
 }
 
 impl Default for App {
@@ -59,9 +63,9 @@ impl Default for App {
             normal_mode_buffer: String::new(),
             clipboard: ClipboardContext::new().unwrap_or_else(|_| {
                 eprintln!("Failed to initialize clipboard context.");
-                // Fallback if initialization fails
                 copypasta::ClipboardContext::new().unwrap()
             }),
+            undo_stack: Vec::new(),
         }
     }
 }
@@ -278,7 +282,8 @@ impl App {
                 &mut self.scroll_offset,
                 self.messages.len() as u16,
                 &mut self.input,
-                &mut self.clipboard, // pass mutable reference
+                &mut self.clipboard,
+                &mut self.undo_stack,
                 commands,
             );
         }

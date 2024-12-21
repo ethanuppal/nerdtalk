@@ -259,6 +259,7 @@ dependencies = [
  "copypasta",
  "crossterm",
  "ratatui",
+ "regex",
  "tokio",
 ]
 
