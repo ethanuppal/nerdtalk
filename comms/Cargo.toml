@@ -7,5 +7,6 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
+chat.workspace = true
 serde.workspace = true
 bincode.workspace = true

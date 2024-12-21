@@ -1,9 +1,13 @@
 use std::{env, fmt::Display, io::Error, sync::Arc};
 
-use comms::Codable;
-use futures_util::{future, StreamExt, TryStreamExt};
+use chat::ChatLogEntry;
+use comms::{AppendChatEntry, Codable};
+use futures_util::StreamExt;
 use log::info;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::mpsc,
+};
 use tokio_rustls::{
     rustls::{
         pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
@@ -46,17 +50,22 @@ async fn main() -> Result<(), Error> {
     let listener = TcpListener::bind(&addr).await?;
     info!("Listening on: {}", addr);
 
+    let (message_tx, message_rx) = mpsc::unbounded_channel();
+
     // TODO: thread pool
     while let Ok((tcp_stream, _)) = listener.accept().await {
         let tls_acceptor = tls_acceptor.clone();
 
         let addr = tcp_stream.peer_addr()?;
 
+        let message_tx = message_tx.clone();
+
         tokio::spawn(async move {
             match tls_acceptor.accept(tcp_stream).await {
                 Ok(tls_stream) => {
                     if let Err(e) =
-                        handle_tls_connection(tls_stream, addr).await
+                        handle_tls_connection(tls_stream, addr, message_tx)
+                            .await
                     {
                         eprintln!("Error handling TLS connection: {}", e);
                     }
@@ -71,41 +80,57 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
+// TODO: return the write and manage a websocket thread pool
 async fn handle_tls_connection<D: Display>(
     tls_stream: TlsStream<TcpStream>,
     addr: D,
+    message_tx: mpsc::UnboundedSender<AppendChatEntry>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Convert TLS stream to WebSocket
     let ws_stream = tokio_tungstenite::accept_async(tls_stream).await?;
 
-    info!("New WebSocket connection: {}", addr);
+    println!("New WebSocket connection: {}", addr);
 
     let (write, read) = ws_stream.split();
 
-    // Echo messages back
-    read.map(|msg| match msg {
+    read.map(|message| match message {
         Ok(Message::Binary(data)) => {
-            let client_request = comms::ClientRequest::try_from_bytes(&data)
+            let client_request = comms::ClientMessage::try_from_bytes(&data)
                 .expect("failed to decode client request");
-            let server_reply = match client_request {
-                comms::ClientRequest::Append {
-                    content,
-                    sequence_number,
-                } => comms::ServerReply::AppendAck,
-                comms::ClientRequest::Ping { last_slot_number } => {
-                    comms::ServerReply::Pong {
-                        client_last_slot_number: last_slot_number,
-                        missing: vec![],
-                    }
-                }
-            };
+            println!("server got message: {:?}", client_request);
+            // let server_reply = match client_request {
+            //     comms::ClientMessage::Append(append) => message_tx.send(append),
+            //     comms::ClientMessage::Request {
+            //         count,
+            //         up_to_slot_number,
+            //     } => todo!(),
+            // };
+            let server_reply = comms::ServerMessage::NewEntry(
+                ChatLogEntry::new_timestamped_now(
+                    0,
+                    "test".into(),
+                    "test".into(),
+                ),
+            );
             Ok(Message::binary(server_reply.to_bytes()))
         }
-        Err(e) => panic!(),
+        Ok(Message::Close(close_frame)) => {
+            println!("server closing connecting with {}", addr);
+            Ok(Message::Close(close_frame))
+        }
+        Err(e) => panic!("server got error: {:?}", e),
         other => panic!("server got non binary data: {:?}", other),
     })
     .forward(write)
-    .await?;
+    .await
+    .or_else(|error| match error {
+        // this is probably a bad idea, but there's no other way to do it after a forward; the
+        // stream gets closed when the server sends a Close and then I assume forward tries to
+        // poll again and it fails, causing this error
+        // the TODO is to not use forward and handle the forwarding logic ourselves
+        tokio_tungstenite::tungstenite::Error::AlreadyClosed => Ok(()),
+        other_error => Err(other_error),
+    })?;
 
     Ok(())
 }
