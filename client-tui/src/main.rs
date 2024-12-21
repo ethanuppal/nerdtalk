@@ -1,6 +1,5 @@
-// use std::env;
-
 use color_eyre::Result;
+use copypasta::ClipboardContext;
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
     event::{
@@ -18,12 +17,11 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
+mod vim;
+use vim::{Mode, VimCmd};
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // let url = env::args().nth(1).unwrap_or_else(|| {
-    //     panic!("Pass the server's wss:// address as a command-line argument")
-    // });
-
     enable_raw_mode()?; // Ensure raw mode is enabled for cursor shape changes
 
     let mut terminal = ratatui::init();
@@ -34,13 +32,6 @@ async fn main() -> Result<()> {
     app_result
 }
 
-#[derive(Debug)]
-enum Mode {
-    Insert,
-    Normal,
-}
-
-#[derive(Debug)]
 pub struct App {
     messages: Vec<String>,
     input: String,
@@ -48,6 +39,9 @@ pub struct App {
     exit: bool,
     scroll_offset: u16,
     cursor_pos: usize,
+    normal_mode_buffer: String,
+    /// The clipboard context for yank/delete/paste
+    clipboard: ClipboardContext,
 }
 
 impl Default for App {
@@ -62,6 +56,12 @@ impl Default for App {
             exit: false,
             scroll_offset: 0,
             cursor_pos: 0,
+            normal_mode_buffer: String::new(),
+            clipboard: ClipboardContext::new().unwrap_or_else(|_| {
+                eprintln!("Failed to initialize clipboard context.");
+                // Fallback if initialization fails
+                copypasta::ClipboardContext::new().unwrap()
+            }),
         }
     }
 }
@@ -79,17 +79,17 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let size = frame.area();
 
-
         let available_width_for_text = if size.width > 5 {
             size.width - 5
         } else {
-            1 // fallback if terminal very narrow
+            1 // fallback if terminal is very narrow
         };
 
         let line_count = if self.input.is_empty() {
             1
         } else {
-            (self.input.len() as u16 + available_width_for_text - 1) / available_width_for_text
+            (self.input.len() as u16 + available_width_for_text - 1)
+                / available_width_for_text
         };
 
         // We add 2 for the borders. line_count is the number of wrapped lines.
@@ -124,7 +124,6 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Messages ")
-                    .border_style(ratatui::style::Style::default())
                     .border_set(border::THICK),
             )
             .wrap(Wrap { trim: true })
@@ -138,7 +137,8 @@ impl App {
         frame.render_widget(messages_paragraph, message_chunks[0]);
 
         if total_lines > inner_height {
-            let scrollbar_inner_height = message_chunks[1].height.saturating_sub(2);
+            let scrollbar_inner_height =
+                message_chunks[1].height.saturating_sub(2);
             let thumb_pos = if max_scroll == 0 {
                 0
             } else {
@@ -154,8 +154,8 @@ impl App {
                 }
             }
 
-            let scrollbar_paragraph = Paragraph::new(Text::from(scrollbar_text))
-                .block(
+            let scrollbar_paragraph =
+                Paragraph::new(Text::from(scrollbar_text)).block(
                     Block::default()
                         .borders(Borders::LEFT | Borders::RIGHT)
                         .border_set(border::THICK),
@@ -163,12 +163,11 @@ impl App {
 
             frame.render_widget(scrollbar_paragraph, message_chunks[1]);
         } else {
-            let empty_scrollbar = Paragraph::new("")
-                .block(
-                    Block::default()
-                        .borders(Borders::LEFT | Borders::RIGHT)
-                        .border_set(border::THICK),
-                );
+            let empty_scrollbar = Paragraph::new("").block(
+                Block::default()
+                    .borders(Borders::LEFT | Borders::RIGHT)
+                    .border_set(border::THICK),
+            );
             frame.render_widget(empty_scrollbar, message_chunks[1]);
         }
     }
@@ -183,7 +182,7 @@ impl App {
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Min(1),
-                Constraint::Length(3), // space for indicator
+                Constraint::Length(3), // space for mode indicator
             ])
             .split(area);
 
@@ -212,6 +211,7 @@ impl App {
         frame.render_widget(input_paragraph, input_chunks[0]);
         frame.render_widget(mode_paragraph, input_chunks[1]);
 
+        // Compute where the cursor should go in TUI coordinates
         let line_index = if available_width_for_text > 0 {
             self.cursor_pos as u16 / available_width_for_text
         } else {
@@ -240,12 +240,6 @@ impl App {
             _ => {}
         }
 
-        // TODO: Handle incoming messages from server:
-        // while let Ok(msg) = self.rx.try_recv() {
-        //     self.messages.push(msg);
-        //     self.scroll_to_bottom();
-        // }
-
         Ok(())
     }
 
@@ -256,65 +250,44 @@ impl App {
         }
     }
 
-    /// Implemented keys: q, i, I, a, A, j, k, h, l, x, w, b
+    /// Normal mode: feed keys into VimCmd parser. Supports operator-pending commands like 'd w'.
     fn handle_key_event_normal_mode(&mut self, key_event: KeyEvent) {
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Char('i') => {
-                self.mode = Mode::Insert;
+        let ch = match key_event.code {
+            KeyCode::Char('q') => {
+                self.exit();
+                return;
             }
-            KeyCode::Char('I') => {
-                self.mode = Mode::Insert;
-                self.cursor_pos = 0;
+            KeyCode::Char(c) => c,
+            _ => {
+                return;
             }
-            KeyCode::Char('a') => {
-                self.mode = Mode::Insert;
-                self.cursor_pos += 1;
-            }
-            KeyCode::Char('A') => {
-                self.mode = Mode::Insert;
-                self.cursor_pos = self.input.len();
-            }
-            KeyCode::Char('j') => {
-                self.scroll_down(1);
-            }
-            KeyCode::Char('k') => {
-                self.scroll_up(1);
-            }
-            KeyCode::Char('h') => {
-                if self.cursor_pos > 0 {
-                    self.cursor_pos -= 1;
-                }
-            }
-            KeyCode::Char('l') => {
-                if self.cursor_pos < self.input.len() {
-                    self.cursor_pos += 1;
-                }
-            }
-            KeyCode::Char('x') => {
-                if self.cursor_pos < self.input.len() {
-                    self.input.remove(self.cursor_pos);
-                }
-            }
-            // acts more like 'W' than 'w', I'll deal with this later (it's a regex I'm too lazy to write)
-            KeyCode::Char('w') => {
-                let next_space = self.input[self.cursor_pos..]
-                    .find(' ')
-                    .map(|pos| pos + self.cursor_pos + 1)
-                    .unwrap_or(self.input.len());
-                self.cursor_pos = next_space;
-            }
-            // ditto lol
-            KeyCode::Char('b') => {
-                let prev_space = self.input[..self.cursor_pos]
-                    .rfind(' ')
-                    .unwrap_or(0);
-                self.cursor_pos = prev_space;
-            }
-            _ => {}
+        };
+
+        // 1) Add the pressed char to our normal-mode buffer
+        self.normal_mode_buffer.push(ch);
+
+        // 2) Parse the entire buffer with VimCmd
+        let mut vim_cmd = VimCmd::new(&self.normal_mode_buffer);
+        let commands = vim_cmd.parse();
+
+        // 3) Apply the commands (if any)
+        if !commands.is_empty() {
+            vim_cmd.apply_cmds(
+                &mut self.mode,
+                &mut self.cursor_pos,
+                &mut self.input,
+                &mut self.clipboard, // pass mutable reference
+                commands,
+            );
+        }
+
+        // 4) Clear buffer if operator is no longer pending
+        if !vim_cmd.is_operator_pending() {
+            self.normal_mode_buffer.clear();
         }
     }
 
+    /// Insert mode: typed characters are inserted into `self.input`.
     fn handle_key_event_insert_mode(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Esc => {
