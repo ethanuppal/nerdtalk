@@ -180,11 +180,11 @@ impl ClientConnection {
     /// # Example
     ///
     /// ```no_run
-    /// #use crate::client::{self, Client};
-    /// #fn main() -> client::Result<()>
-    /// let client = Client::connect_to_server("wss://127.0.0.1:8080")?;
-    /// #Ok()
-    /// #}
+    /// # use client_connect::{ClientConnection, ClientConnectionResult};
+    /// # async fn foo() -> ClientConnectionResult<()> {
+    /// let client_connection = ClientConnection::connect_to_server("wss://127.0.0.1:8080").await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn connect_to_server<R: IntoClientRequest + Unpin>(
         server_address: R,
