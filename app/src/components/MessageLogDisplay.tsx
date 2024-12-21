@@ -10,12 +10,15 @@ interface MessageLogDisplayProps {
 const MessageLogDisplay: React.FC<MessageLogDisplayProps> = observer(
   ({ messageLogStore }) => {
     useEffect(() => {
-      messageLogStore.appendMessage({body: "hello", "sender": "haadi", timestamp: "blah"})
+      messageLogStore.appendMessage({
+        body: "hello",
+        sender: "haadi",
+        timestamp: "blah",
+      });
     }, []);
 
-
     return (
-      <div className="flex-grow bg-secondary-color border rounded flex flex-col gap-1 p-1">
+      <div className="flex-grow bg-secondary-color border-none rounded flex flex-col gap-1 p-2">
         {messageLogStore.runningLog.map((message) => (
           <TextBox timestamp={message.timestamp} messageBody={message.body} />
         ))}

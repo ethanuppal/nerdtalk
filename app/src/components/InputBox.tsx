@@ -19,16 +19,16 @@ const InputBox = observer(({messageLogStore}: InputBoxProps) => {
 
   return (
     <form
-      className="bg-primary-color flex gap-2 rounded border px-2 py-2"
+      className="bg-primary-color flex gap-2 rounded border-none px-2 py-2"
       onSubmit={handleOnSubmit}
     >
       <button>&gt;</button>
       <input
-        className="bg-transparent focus:outline-none w-full"
-        type="text"
-        placeholder="Enter message..."
-        value={userInput}
-        onChange={(e) => setUserInput(e.target.value)}
+      className="bg-transparent focus:outline-none w-full text-black placeholder-gray-700"
+      type="text"
+      placeholder="Enter message..."
+      value={userInput}
+      onChange={(e) => setUserInput(e.target.value)}
       />
     </form>
   );
