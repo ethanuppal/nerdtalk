@@ -1,21 +1,21 @@
-import { makeObservable, observable, action } from "mobx";
+import { makeObservable, observable, action } from 'mobx'
 
 export interface Message {
-  body: string;
-  timestamp: string;
-  sender: string;
-  slotnum?: number;
+  body: string
+  timestamp: string
+  sender: string
+  slotnum?: number
 }
 
 export class MessageLogStore {
-  runningLog: Message[];
+  runningLog: Message[]
 
   constructor() {
-    this.runningLog = [];
+    this.runningLog = []
     makeObservable(this, {
       runningLog: observable,
       appendMessage: action,
-      appendMessages: action
+      appendMessages: action,
     })
   }
 
@@ -24,9 +24,9 @@ export class MessageLogStore {
   }
 
   appendMessages(messages: Message[]) {
-    this.runningLog = this.runningLog.concat(messages);
+    this.runningLog = this.runningLog.concat(messages)
   }
 }
 
-const messageLogStore = new MessageLogStore();
-export default messageLogStore;
+const messageLogStore = new MessageLogStore()
+export default messageLogStore

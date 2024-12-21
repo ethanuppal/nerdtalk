@@ -1,37 +1,41 @@
-import { MessageLogStore } from "@state/messageLogStore";
-import { observer } from "mobx-react-lite";
-import { FormEvent, useState } from "react";
+import { MessageLogStore } from '@state/messageLogStore'
+import { observer } from 'mobx-react-lite'
+import { FormEvent, useState } from 'react'
 
 interface InputBoxProps {
-  messageLogStore: MessageLogStore;
+  messageLogStore: MessageLogStore
 }
 
-const InputBox = observer(({messageLogStore}: InputBoxProps) => {
-  const [userInput, setUserInput] = useState("");
+const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
+  const [userInput, setUserInput] = useState('')
 
   const handleOnSubmit = (e: FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
 
-    messageLogStore.appendMessage({body: userInput, sender: "HOST", timestamp: "default"})
+    messageLogStore.appendMessage({
+      body: userInput,
+      sender: 'HOST',
+      timestamp: 'default',
+    })
 
-    setUserInput("");
-  };
+    setUserInput('')
+  }
 
   return (
     <form
-      className="bg-primary-color flex gap-2 rounded border-none px-2 py-2"
+      className="flex gap-2 rounded border-none bg-primary-color px-2 py-2"
       onSubmit={handleOnSubmit}
     >
       <button>&gt;</button>
       <input
-      className="bg-transparent focus:outline-none w-full text-black placeholder-gray-700"
-      type="text"
-      placeholder="Enter message..."
-      value={userInput}
-      onChange={(e) => setUserInput(e.target.value)}
+        className="w-full bg-transparent text-black placeholder-gray-700 focus:outline-none"
+        type="text"
+        placeholder="Enter message..."
+        value={userInput}
+        onChange={(e) => setUserInput(e.target.value)}
       />
     </form>
-  );
-});
+  )
+})
 
-export default InputBox;
+export default InputBox
