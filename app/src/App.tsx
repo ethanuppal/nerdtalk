@@ -6,7 +6,7 @@ import messageLogStore from "@state/messageLogStore";
 
 function App() {
   return (
-    <main className="h-screen flex flex-col gap-2 p-2">
+    <main className="h-screen flex flex-col gap-2 p-2 border-none">
       <MessageLogDisplay messageLogStore={messageLogStore} />
 
       <InputBox messageLogStore={messageLogStore} />
