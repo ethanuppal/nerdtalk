@@ -6,10 +6,12 @@ pub enum Mode {
     Normal,
 }
 
-pub enum Command {
-    // Standalone commands
+/// These are commands which work with a single keypress. These are the simplest
+/// commands, like `i` for insert mode, `x` for delete char, etc.
+pub enum SingleCmd {
     Insert,
     Append,
+    InsertSOL, // start of line lol
     AppendEOL,
     DeleteCharUnderCursor,
     MoveLeft,
@@ -21,13 +23,23 @@ pub enum Command {
     BackwardWord,
     BackwardBigWord,
     Paste,
+}
 
-    // Operator-pending commands
+/// These are commands which requires an additional vim clause. You need a word
+/// object or motion to complete the command.
+pub enum MultiCmd {
     Delete,
     Change,
     ChangeEOL,
     Replace(char),
     Yank,
+}
+
+/// A Command is a fully-specified action that can be applied to the editor state.
+/// It may be a standalone command (like `i` for insert mode), or an operator
+pub enum Command {
+    SingleCmd(SingleCmd),
+    MultiCmd(MultiCmd),
 }
 
 /// The Operator describes a partially-specified command that requires a Motion.
@@ -54,7 +66,7 @@ pub enum Motion {
 /// Simple VimCmd parser. Tracks an optional operator.
 pub struct VimCmd<'a> {
     input: &'a str,
-    pos: usize,
+    x_pos: usize,
     operator: Option<Operator>,
 }
 
@@ -62,16 +74,16 @@ impl<'a> VimCmd<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             input,
-            pos: 0,
+            x_pos: 0,
             operator: None,
         }
     }
 
     /// Consume the next character from `self.input`, if any.
     pub fn next_char(&mut self) -> Option<char> {
-        let ch = self.input.chars().nth(self.pos);
+        let ch = self.input.chars().nth(self.x_pos);
         if ch.is_some() {
-            self.pos += 1;
+            self.x_pos += 1;
         }
         ch
     }
@@ -85,54 +97,57 @@ impl<'a> VimCmd<'a> {
                 // We already have an operator: interpret next char as a motion or text object
                 if let Some(motion) = self.char_to_motion(ch) {
                     // We have op + motion => full command
-                    commands.push(self.apply_operator_motion(op.clone(), motion));
+                    commands
+                        .push(self.apply_operator_motion(op.clone(), motion));
                     // Operator is complete
                     self.operator = None;
-                } else {
-                    // Possibly more logic for 'f<char>', 'i<char>' text objects, etc.
-                    // For simplicity, do nothing unless it's a recognized motion.
                 }
             } else {
                 match ch {
                     // Standalone commands
-                    'i' => commands.push(Command::Insert),
-                    'a' => commands.push(Command::Append),
-                    'A' => commands.push(Command::AppendEOL),
-                    'h' => commands.push(Command::MoveLeft),
-                    'l' => commands.push(Command::MoveRight),
-                    'j' => commands.push(Command::MoveDown),
-                    'k' => commands.push(Command::MoveUp),
-                    'w' => commands.push(Command::ForwardWord),
-                    'W' => commands.push(Command::ForwardBigWord),
-                    'b' => commands.push(Command::BackwardWord),
-                    'B' => commands.push(Command::BackwardBigWord),
-                    'x' => {
-                        // By convention in Vim, `x` is like `dl` (delete char under cursor).
-                        // We'll treat it as a one-char delete. We'll also put that text in clipboard.
-                        commands.push(Command::DeleteCharUnderCursor);
+                    'i' => commands.push(Command::SingleCmd(SingleCmd::Insert)),
+                    'I' => {
+                        commands.push(Command::SingleCmd(SingleCmd::InsertSOL))
                     }
-                    'p' => {
-                        // Paste from the clipboard
-                        commands.push(Command::Paste);
+                    'a' => commands.push(Command::SingleCmd(SingleCmd::Append)),
+                    'A' => {
+                        commands.push(Command::SingleCmd(SingleCmd::AppendEOL))
                     }
+                    'h' => {
+                        commands.push(Command::SingleCmd(SingleCmd::MoveLeft))
+                    }
+                    'l' => {
+                        commands.push(Command::SingleCmd(SingleCmd::MoveRight))
+                    }
+                    'j' => {
+                        commands.push(Command::SingleCmd(SingleCmd::MoveDown))
+                    }
+                    'k' => commands.push(Command::SingleCmd(SingleCmd::MoveUp)),
+                    'w' => commands
+                        .push(Command::SingleCmd(SingleCmd::ForwardWord)),
+                    'W' => commands
+                        .push(Command::SingleCmd(SingleCmd::ForwardBigWord)),
+                    'b' => commands
+                        .push(Command::SingleCmd(SingleCmd::BackwardWord)),
+                    'B' => commands
+                        .push(Command::SingleCmd(SingleCmd::BackwardBigWord)),
+                    'x' => commands.push(Command::SingleCmd(
+                        SingleCmd::DeleteCharUnderCursor,
+                    )),
+                    'p' => commands.push(Command::SingleCmd(SingleCmd::Paste)),
 
                     // Operator commands
                     'd' => self.operator = Some(Operator::Delete),
                     'c' => self.operator = Some(Operator::Change),
                     'y' => self.operator = Some(Operator::Yank),
                     'r' => {
-                        // 'r' requires a character to replace with
                         if let Some(next_c) = self.next_char() {
-                            self.operator = Some(Operator::Replace(next_c));
-                            // 'rX' => immediately replace char under cursor with X
-                            commands.push(Command::Replace(next_c));
-                            self.operator = None;
+                            commands.push(Command::MultiCmd(
+                                MultiCmd::Replace(next_c),
+                            ));
                         }
                     }
-
-                    _ => {
-                        // Unhandled command or just ignore
-                    }
+                    _ => {}
                 }
             }
         }
@@ -148,33 +163,18 @@ impl<'a> VimCmd<'a> {
     /// Given an Operator + Motion, produce the final Command.
     fn apply_operator_motion(&self, op: Operator, motion: Motion) -> Command {
         match op {
-            Operator::Delete => {
-                // e.g. `d w` => "Delete forward word"
-                // You could create a new Command::DeleteMotion(motion), or expand as you see fit.
-                match motion {
-                    Motion::ForwardWord
-                    | Motion::ForwardBigWord
-                    | Motion::BackwardWord
-                    | Motion::BackwardBigWord => Command::Delete,
-                    _ => Command::Delete,
+            Operator::Delete => Command::MultiCmd(MultiCmd::Delete),
+            Operator::Change => match motion {
+                Motion::ForwardWord
+                | Motion::ForwardBigWord
+                | Motion::BackwardWord
+                | Motion::BackwardBigWord => {
+                    Command::MultiCmd(MultiCmd::Change)
                 }
-            }
-            Operator::Change => {
-                // e.g. `c w` => "Change forward word"
-                match motion {
-                    Motion::ForwardWord
-                    | Motion::ForwardBigWord
-                    | Motion::BackwardWord
-                    | Motion::BackwardBigWord => Command::Change,
-                    _ => Command::ChangeEOL, // as a fallback
-                }
-            }
-            Operator::Replace(c) => Command::Replace(c),
-            Operator::Yank => {
-                // e.g. `y w` => "Yank forward word"
-                // We'll just treat it all as yank for simplicity
-                Command::Yank
-            }
+                _ => Command::MultiCmd(MultiCmd::ChangeEOL),
+            },
+            Operator::Replace(c) => Command::MultiCmd(MultiCmd::Replace(c)),
+            Operator::Yank => Command::MultiCmd(MultiCmd::Yank),
         }
     }
 
@@ -199,131 +199,134 @@ impl<'a> VimCmd<'a> {
         &self,
         mode: &mut Mode,
         cursor_pos: &mut usize,
+        message_pos: &mut u16,
+        height: u16,
         text: &mut String,
         clipboard: &mut copypasta::ClipboardContext,
         commands: Vec<Command>,
     ) {
         for cmd in commands {
             match cmd {
-                // -------------------------------
-                // 1) Standalone commands
-                // -------------------------------
-                Command::Insert => {
-                    *mode = Mode::Insert;
-                }
-                Command::Append => {
-                    *mode = Mode::Insert;
-                    // Move cursor one char right if possible
-                    if *cursor_pos < text.len() {
-                        *cursor_pos += 1;
+                Command::SingleCmd(single_cmd) => match single_cmd {
+                    SingleCmd::Insert => {
+                        *mode = Mode::Insert;
                     }
-                }
-                Command::AppendEOL => {
-                    *mode = Mode::Insert;
-                    *cursor_pos = text.len();
-                }
-                Command::DeleteCharUnderCursor => {
-                    if *cursor_pos < text.len() {
-                        // Grab the char being deleted for the clipboard
-                        let removed_char = text.remove(*cursor_pos);
-                        let _ = clipboard.set_contents(removed_char.to_string());
+                    SingleCmd::Append => {
+                        *mode = Mode::Insert;
+                        if *cursor_pos < text.len() {
+                            *cursor_pos += 1;
+                        }
                     }
-                }
-                Command::MoveLeft => {
-                    if *cursor_pos > 0 {
-                        *cursor_pos -= 1;
+                    SingleCmd::InsertSOL => {
+                        *mode = Mode::Insert;
+                        *cursor_pos = 0;
                     }
-                }
-                Command::MoveRight => {
-                    if *cursor_pos < text.len() {
-                        *cursor_pos += 1;
+                    SingleCmd::AppendEOL => {
+                        *mode = Mode::Insert;
+                        *cursor_pos = text.len();
                     }
-                }
-                Command::MoveUp => {
-                    // For multi-line text, you'd do more complex logic here.
-                    // As a placeholder, let's move the cursor up ~10 chars if possible.
-                    let up_offset = 10_usize.min(*cursor_pos);
-                    *cursor_pos = cursor_pos.saturating_sub(up_offset);
-                }
-                Command::MoveDown => {
-                    // Similarly, move the cursor down ~10 chars as a placeholder.
-                    let down_offset = 10_usize;
-                    *cursor_pos = (*cursor_pos + down_offset).min(text.len());
-                }
-                Command::ForwardWord => {
-                    *cursor_pos = find_next_word_boundary(text, *cursor_pos);
-                }
-                Command::ForwardBigWord => {
-                    *cursor_pos = find_next_big_word_boundary(text, *cursor_pos);
-                }
-                Command::BackwardWord => {
-                    *cursor_pos = find_prev_word_boundary(text, *cursor_pos);
-                }
-                Command::BackwardBigWord => {
-                    *cursor_pos = find_prev_big_word_boundary(text, *cursor_pos);
-                }
-                Command::Paste => {
-                    if let Ok(clip_text) = clipboard.get_contents() {
-                        // Insert the clipboard contents at the cursor
-                        text.insert_str(*cursor_pos, &clip_text);
-                        *cursor_pos += clip_text.len();
+                    SingleCmd::DeleteCharUnderCursor => {
+                        if *cursor_pos < text.len() {
+                            let removed_char = text.remove(*cursor_pos);
+                            let _ = clipboard
+                                .set_contents(removed_char.to_string());
+                        }
                     }
-                }
-
-                // -------------------------------
-                // 2) Operator-pending commands
-                // -------------------------------
-                Command::Delete => {
-                    // Example: "d w" => delete a word.
-                    // For simplicity, let's assume 'delete' means a small range, or entire line, etc.
-                    // We'll demonstrate a simple "delete next word" approach:
-                    let word_end = find_next_word_boundary(text, *cursor_pos);
-                    if word_end > *cursor_pos {
-                        let removed = text.drain(*cursor_pos..word_end).collect::<String>();
-                        let _ = clipboard.set_contents(removed);
+                    SingleCmd::MoveLeft => {
+                        if *cursor_pos > 0 {
+                            *cursor_pos -= 1;
+                        }
                     }
-                }
-                Command::Change => {
-                    // Example: "c w" => change a word (delete + go insert)
-                    let word_end = find_next_word_boundary(text, *cursor_pos);
-                    if word_end > *cursor_pos {
-                        let removed = text.drain(*cursor_pos..word_end).collect::<String>();
-                        let _ = clipboard.set_contents(removed);
+                    SingleCmd::MoveRight => {
+                        if *cursor_pos < text.len() {
+                            *cursor_pos += 1;
+                        }
                     }
-                    *mode = Mode::Insert;
-                }
-                Command::ChangeEOL => {
-                    let end_of_line = text.len();
-                    if *cursor_pos < end_of_line {
-                        let removed = text.drain(*cursor_pos..end_of_line).collect::<String>();
-                        let _ = clipboard.set_contents(removed);
+                    SingleCmd::MoveUp => {
+                        *message_pos = message_pos.saturating_sub(1);
                     }
-                    *mode = Mode::Insert;
-                }
-                Command::Replace(c) => {
-                    // Replace the character under the cursor
-                    if *cursor_pos < text.len() {
-                        // The removed character goes to clipboard too (like 'x')
-                        let removed_char = text.remove(*cursor_pos);
-                        let _ = clipboard.set_contents(removed_char.to_string());
-
-                        // Insert the new char
-                        text.insert(*cursor_pos, c);
+                    SingleCmd::MoveDown => {
+                        *message_pos = (*message_pos + 1).min(height);
                     }
-                }
-                Command::Yank => {
-                    let word_end = find_next_word_boundary(text, *cursor_pos);
-                    if word_end > *cursor_pos {
-                        let substring = &text[*cursor_pos..word_end];
-                        let _ = clipboard.set_contents(substring.to_string());
+                    SingleCmd::ForwardWord => {
+                        *cursor_pos =
+                            find_next_word_boundary(text, *cursor_pos);
                     }
-                }
+                    SingleCmd::ForwardBigWord => {
+                        *cursor_pos =
+                            find_next_big_word_boundary(text, *cursor_pos);
+                    }
+                    SingleCmd::BackwardWord => {
+                        *cursor_pos =
+                            find_prev_word_boundary(text, *cursor_pos);
+                    }
+                    SingleCmd::BackwardBigWord => {
+                        *cursor_pos =
+                            find_prev_big_word_boundary(text, *cursor_pos);
+                    }
+                    SingleCmd::Paste => {
+                        if let Ok(clip_text) = clipboard.get_contents() {
+                            text.insert_str(*cursor_pos, &clip_text);
+                            *cursor_pos += clip_text.len();
+                        }
+                    }
+                },
+                Command::MultiCmd(multi_cmd) => match multi_cmd {
+                    MultiCmd::Delete => {
+                        let word_end =
+                            find_next_word_boundary(text, *cursor_pos);
+                        if word_end > *cursor_pos {
+                            let removed = text
+                                .drain(*cursor_pos..word_end)
+                                .collect::<String>();
+                            let _ = clipboard.set_contents(removed);
+                        }
+                    }
+                    MultiCmd::Change => {
+                        let word_end =
+                            find_next_word_boundary(text, *cursor_pos);
+                        if word_end > *cursor_pos {
+                            let removed = text
+                                .drain(*cursor_pos..word_end)
+                                .collect::<String>();
+                            let _ = clipboard.set_contents(removed);
+                        }
+                        *mode = Mode::Insert;
+                    }
+                    MultiCmd::ChangeEOL => {
+                        let end_of_line = text.len();
+                        if *cursor_pos < end_of_line {
+                            let removed = text
+                                .drain(*cursor_pos..end_of_line)
+                                .collect::<String>();
+                            let _ = clipboard.set_contents(removed);
+                        }
+                        *mode = Mode::Insert;
+                    }
+                    MultiCmd::Replace(c) => {
+                        if *cursor_pos < text.len() {
+                            let removed_char = text.remove(*cursor_pos);
+                            let _ = clipboard
+                                .set_contents(removed_char.to_string());
+                            text.insert(*cursor_pos, c);
+                        }
+                    }
+                    MultiCmd::Yank => {
+                        let word_end =
+                            find_next_word_boundary(text, *cursor_pos);
+                        if word_end > *cursor_pos {
+                            let substring = &text[*cursor_pos..word_end];
+                            let _ =
+                                clipboard.set_contents(substring.to_string());
+                        }
+                    }
+                },
             }
         }
     }
 }
 
-/// Find the next "word boundary" from `start`. 
+/// Find the next "word boundary" from `start`.
 /// This is very naive: it scans until it sees a space or end of string.
 fn find_next_word_boundary(text: &str, start: usize) -> usize {
     let remainder = &text[start..];
@@ -355,7 +358,7 @@ fn find_prev_word_boundary(text: &str, start: usize) -> usize {
     }
 }
 
-/// A "big word" backward boundary might skip punctuation, etc. 
+/// A "big word" backward boundary might skip punctuation, etc.
 fn find_prev_big_word_boundary(text: &str, start: usize) -> usize {
     // Same as normal backward word for demonstration
     find_prev_word_boundary(text, start)

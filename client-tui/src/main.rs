@@ -275,6 +275,8 @@ impl App {
             vim_cmd.apply_cmds(
                 &mut self.mode,
                 &mut self.cursor_pos,
+                &mut self.scroll_offset,
+                self.messages.len() as u16,
                 &mut self.input,
                 &mut self.clipboard, // pass mutable reference
                 commands,
