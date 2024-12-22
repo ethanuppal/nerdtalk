@@ -109,18 +109,12 @@ impl App {
         terminal: &mut DefaultTerminal,
         messages: Arc<RwLock<Vec<String>>>,
     ) -> Result<(), io::Error> {
-        let mut interval =
-            tokio::time::interval(time::Duration::from_millis(20));
         while !self.exit {
-            {
-                let messages = messages.read().await;
-                let messages_ref = &*messages;
-                terminal.draw(|frame| self.draw(messages_ref, frame))?;
-                self.update_cursor_shape(terminal)?;
-                self.handle_events(messages_ref)?;
-                drop(messages);
-            }
-            interval.tick().await;
+            let messages = messages.read().await;
+            let messages_ref = &*messages;
+            terminal.draw(|frame| self.draw(messages_ref, frame))?;
+            self.update_cursor_shape(terminal)?;
+            self.handle_events(messages_ref)?;
         }
         Ok(())
     }
@@ -137,7 +131,8 @@ impl App {
         let line_count = if self.input.is_empty() {
             1
         } else {
-            (self.input.len() as u16).div_ceil(available_width_for_text)
+            (self.input.len() as u16 + available_width_for_text - 1)
+                / available_width_for_text
         };
 
         // We add 2 for the borders. line_count is the number of wrapped lines.
@@ -288,18 +283,14 @@ impl App {
     }
 
     fn handle_events(&mut self, messages: &[String]) -> Result<(), io::Error> {
-        if event::poll(time::Duration::from_millis(5))? {
-            match event::read()? {
-                Event::Key(key_event)
-                    if key_event.kind == KeyEventKind::Press =>
-                {
-                    self.handle_key_event(messages, key_event);
-                }
-                Event::Mouse(mouse_event) => {
-                    self.handle_mouse_event(messages, mouse_event);
-                }
-                _ => {}
+        match event::read()? {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                self.handle_key_event(messages, key_event);
             }
+            Event::Mouse(mouse_event) => {
+                self.handle_mouse_event(messages, mouse_event);
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -431,12 +422,12 @@ impl App {
     fn send_message(&mut self, messages: &[String]) {
         let trimmed = self.input.trim();
         if !trimmed.is_empty() {
-            self.tx
-                .send(comms::ClientMessage::Append(comms::AppendChatEntry {
+            self.tx.send(comms::ClientMessage::Append(
+                comms::AppendChatEntry {
                     username: "me".to_string(),
                     content: trimmed.to_string(),
-                }))
-                .expect("channel closed on server");
+                },
+            ));
         }
         self.input.clear();
         self.cursor_pos = 0;
@@ -490,7 +481,7 @@ impl App {
             Mode::Normal => {
                 if self.normal_mode_buffer.is_empty() {
                     Span::styled(
-                        " N ".to_string(),
+                        format!(" N "),
                         Style::default().fg(Color::Blue),
                     )
                 } else {
@@ -499,15 +490,14 @@ impl App {
                     let padded = format!("{:<4}", display_str);
 
                     Span::styled(
-                        padded.to_string(),
+                        format!("{padded}"),
                         Style::default().fg(Color::Blue),
                     )
                 }
             }
-            Mode::Insert => Span::styled(
-                " I ".to_string(),
-                Style::default().fg(Color::Green),
-            ),
+            Mode::Insert => {
+                Span::styled(format!(" I "), Style::default().fg(Color::Green))
+            }
         }
     }
 }

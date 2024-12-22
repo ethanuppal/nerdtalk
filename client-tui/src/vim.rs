@@ -291,9 +291,6 @@ impl VimCommand<'_> {
     ) {
         for cmd in commands {
             match cmd {
-                // -----------------------------
-                // SingleCommand actions
-                // -----------------------------
                 Command::SingleCommand(single_cmd) => match single_cmd {
                     SingleCommand::Edit(edit) => {
                         if *focus == Focus::Input {
@@ -347,8 +344,6 @@ impl VimCommand<'_> {
                         }
                     }
 
-                    // Movement commands are allowed in *both* focuses, but do
-                    // different things
                     SingleCommand::Motion(motion) => match motion {
                         Motion::Left => {
                             if *focus == Focus::Messages {
@@ -372,7 +367,6 @@ impl VimCommand<'_> {
                         }
                         Motion::Down => {
                             if *focus == Focus::Messages {
-                                // Scroll down or move cursor
                                 *message_pos = (*message_pos + 1).min(height);
                             }
                         }
@@ -411,44 +405,31 @@ impl VimCommand<'_> {
                     },
                 },
 
-                // -----------------------------
-                // MultiCommand actions
-                // -----------------------------
-                Command::MultiCommand(multi_cmd) => {
-                    if *focus == Focus::Input {
-                        // Normal input editing
-                        match multi_cmd {
-                            MultiCommand::Delete(noun) => {
-                                delete_helper(
-                                    cursor_pos, text, clipboard, &noun,
-                                );
-                            }
-                            MultiCommand::Change(noun) => {
-                                change_helper(
-                                    mode, cursor_pos, text, clipboard, &noun,
-                                );
-                            }
-                            MultiCommand::Yank(noun) => {
-                                yank_helper(cursor_pos, text, clipboard, &noun);
-                            }
-                            MultiCommand::ChangeEOL => {
-                                if *cursor_pos < text.len() {
-                                    let removed = text
-                                        .drain(*cursor_pos..)
-                                        .collect::<String>();
-                                    let _ = clipboard.set_contents(removed);
-                                }
-                                *mode = Mode::Insert;
-                            }
-                            MultiCommand::Replace(c) => {
-                                if *cursor_pos < text.len() {
-                                    text.remove(*cursor_pos);
-                                    text.insert(*cursor_pos, c);
-                                }
-                            }
+                Command::MultiCommand(multi_cmd) => match multi_cmd {
+                    MultiCommand::Delete(noun) => {
+                        delete_helper(cursor_pos, text, clipboard, &noun);
+                    }
+                    MultiCommand::Change(noun) => {
+                        change_helper(mode, cursor_pos, text, clipboard, &noun);
+                    }
+                    MultiCommand::Yank(noun) => {
+                        yank_helper(cursor_pos, text, clipboard, &noun);
+                    }
+                    MultiCommand::ChangeEOL => {
+                        if *cursor_pos < text.len() {
+                            let removed =
+                                text.drain(*cursor_pos..).collect::<String>();
+                            let _ = clipboard.set_contents(removed);
+                        }
+                        *mode = Mode::Insert;
+                    }
+                    MultiCommand::Replace(c) => {
+                        if *cursor_pos < text.len() {
+                            text.remove(*cursor_pos);
+                            text.insert(*cursor_pos, c);
                         }
                     }
-                }
+                },
             }
         }
     }
@@ -551,28 +532,28 @@ fn word_boundary(
     let matches: Vec<_> = regex.find_iter(remainder).collect();
 
     if is_forward {
-        // find first match from remainder
-        if let Some(mat) = regex.find(remainder) {
+        if let Some(mat) = matches.first() {
             let mut ms = mat.start();
-            if let Some(ch) = remainder.chars().nth(ms) {
-                if ch.is_whitespace() {
-                    ms += 1;
-                }
+            if mat.as_str().chars().all(char::is_whitespace) {
+                ms = mat.end();
             }
             start_index + ms + (ms == 0) as usize
         } else {
             text.len()
         }
     } else {
-        // find last match
         if let Some(mat) = matches.last() {
-            let mut ms = mat.start();
-            if let Some(ch) = remainder.chars().nth(ms) {
-                if ch.is_whitespace() && ms > 0 {
-                    ms -= 1;
+            let (ms, me) = if mat.end() == start_index {
+                let (new_index, at_front) = matches.len().overflowing_sub(2);
+                if at_front {
+                    (0, 0)
+                } else {
+                    (matches[new_index].start(), matches[new_index].end())
                 }
-            }
-            ms
+            } else {
+                (mat.start(), mat.end())
+            };
+            me + (text[ms..me + 1].chars().all(char::is_whitespace) as usize)
         } else {
             0
         }
@@ -580,17 +561,17 @@ fn word_boundary(
 }
 
 fn find_next_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s\p{P}]", true)
+    word_boundary(text, start, r"[\s]+|[\p{P}]", true)
 }
 
 fn find_next_big_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s]", true)
+    word_boundary(text, start, r"[\s]+", true)
 }
 
 fn find_prev_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s\p{P}]", false)
+    word_boundary(text, start, r"[\s]+|[\p{P}]", false)
 }
 
 fn find_prev_big_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s]", false)
+    word_boundary(text, start, r"[\s]+", false)
 }
