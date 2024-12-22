@@ -1,4 +1,4 @@
-use std::{fmt, mem, sync::Arc};
+use std::{error::Error, fmt, mem, sync::Arc};
 
 use comms::Codable;
 use futures_util::{future, SinkExt, StreamExt};
@@ -13,7 +13,6 @@ use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream,
 };
 use webpki::types::{pem::PemObject, CertificateDer};
-use std::error::Error;
 
 /// An error that can occur on the client side.
 #[derive(Debug)]
@@ -30,21 +29,16 @@ pub enum ClientConnectionError {
 impl fmt::Display for ClientConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClientConnectionError::InvalidRootCertificate { message, cause } => {
-                cause.fmt(f)
-            }
-            ClientConnectionError::WebSocketFailure(cause) => {
-                cause.fmt(f)
-            }
+            ClientConnectionError::InvalidRootCertificate {
+                message,
+                cause,
+            } => cause.fmt(f),
+            ClientConnectionError::WebSocketFailure(cause) => cause.fmt(f),
             ClientConnectionError::UnexpectedWebSocketMessage(message) => {
                 write!(f, "Unexpected WebSocket message: {:?}", message)
             }
             ClientConnectionError::MalformedServerMessage(message, cause) => {
-                write!(
-                    f,
-                    "Malformed server message {:?}: {}",
-                    message, cause
-                )
+                write!(f, "Malformed server message {:?}: {}", message, cause)
             }
         }
     }
