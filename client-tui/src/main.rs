@@ -1,5 +1,3 @@
-//use std::env;
-use color_eyre::Result;
 use copypasta::ClipboardContext;
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
@@ -12,17 +10,26 @@ use crossterm::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
     symbols::border,
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
     DefaultTerminal, Frame,
 };
+//use std::env;
 
 mod vim;
 use vim::{Mode, VimCommand};
 
+/// Indicates which part of the UI is currently in “focus.”
+#[derive(Debug, PartialEq)]
+pub enum Focus {
+    Messages,
+    Input,
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), std::io::Error> {
     // let url = env::args().nth(1).unwrap_or_else(|| {
     //     panic!("Pass the server's wss:// address as a command-line argument")
     // });
@@ -42,10 +49,12 @@ pub struct App {
     mode: Mode,
     exit: bool,
     scroll_offset: u16,
+    messages_cursor: usize,
     cursor_pos: usize,
     normal_mode_buffer: String,
     clipboard: ClipboardContext,
     undo_stack: Vec<String>,
+    focus: Focus,
 }
 
 impl Default for App {
@@ -59,6 +68,7 @@ impl Default for App {
             mode: Mode::Insert,
             exit: false,
             scroll_offset: 0,
+            messages_cursor: 0,
             cursor_pos: 0,
             normal_mode_buffer: String::new(),
             clipboard: ClipboardContext::new().unwrap_or_else(|_| {
@@ -66,12 +76,16 @@ impl Default for App {
                 copypasta::ClipboardContext::new().unwrap()
             }),
             undo_stack: Vec::new(),
+            focus: Focus::Input,
         }
     }
 }
 
 impl App {
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+    pub fn run(
+        &mut self,
+        terminal: &mut DefaultTerminal,
+    ) -> Result<(), std::io::Error> {
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
             self.update_cursor_shape(terminal)?;
@@ -98,19 +112,22 @@ impl App {
 
         // We add 2 for the borders. line_count is the number of wrapped lines.
         let required_height = line_count + 2;
-        // Ensure at least height 3
+        // Ensure at least height 3 for the input box
         let input_height = required_height.max(3);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(input_height)])
+            .constraints([
+                Constraint::Min(1),
+                Constraint::Length(input_height),
+            ])
             .split(size);
 
         self.draw_messages_area(frame, chunks[0]);
         self.draw_input_area(frame, chunks[1], available_width_for_text);
     }
 
-    fn draw_messages_area(&self, frame: &mut Frame, area: Rect) {
+    fn draw_messages_area(&mut self, frame: &mut Frame, area: Rect) {
         let text_lines: Vec<Line> = self
             .messages
             .iter()
@@ -120,8 +137,21 @@ impl App {
         let inner_height = area.height.saturating_sub(2);
         let total_lines = text_lines.len() as u16;
 
+        if self.messages_cursor >= self.messages.len() {
+            self.messages_cursor = self.messages.len().saturating_sub(1);
+        }
+
         let max_scroll = total_lines.saturating_sub(inner_height);
-        let scroll_offset = self.scroll_offset.min(max_scroll);
+        self.scroll_offset = self.scroll_offset.min(max_scroll);
+
+        if (self.messages_cursor as u16) < self.scroll_offset {
+            self.scroll_offset = self.messages_cursor as u16;
+        } else if (self.messages_cursor as u16)
+            >= (self.scroll_offset + inner_height)
+        {
+            self.scroll_offset =
+                (self.messages_cursor as u16).saturating_sub(inner_height - 1);
+        }
 
         let messages_paragraph = Paragraph::new(Text::from(text_lines))
             .block(
@@ -131,7 +161,7 @@ impl App {
                     .border_set(border::THICK),
             )
             .wrap(Wrap { trim: true })
-            .scroll((scroll_offset, 0));
+            .scroll((self.scroll_offset, 0));
 
         let message_chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -146,7 +176,7 @@ impl App {
             let thumb_pos = if max_scroll == 0 {
                 0
             } else {
-                scroll_offset * scrollbar_inner_height / max_scroll
+                self.scroll_offset * scrollbar_inner_height / max_scroll
             };
 
             let mut scrollbar_text = Vec::new();
@@ -167,12 +197,21 @@ impl App {
 
             frame.render_widget(scrollbar_paragraph, message_chunks[1]);
         } else {
+            // no scrollbar needed
             let empty_scrollbar = Paragraph::new("").block(
                 Block::default()
                     .borders(Borders::LEFT | Borders::RIGHT)
                     .border_set(border::THICK),
             );
             frame.render_widget(empty_scrollbar, message_chunks[1]);
+        }
+
+        if self.focus == Focus::Messages {
+            let relative_y = (self.messages_cursor as u16)
+                .saturating_sub(self.scroll_offset);
+            let cursor_x = message_chunks[0].x + 1;
+            let cursor_y = message_chunks[0].y + 1 + relative_y;
+            frame.set_cursor_position((cursor_x, cursor_y));
         }
     }
 
@@ -196,29 +235,28 @@ impl App {
         let mode_paragraph = Paragraph::new(mode_span)
             .block(Block::default().borders(Borders::ALL));
 
-        // Render widgets
         frame.render_widget(input_paragraph, input_chunks[0]);
         frame.render_widget(mode_paragraph, input_chunks[1]);
 
-        // Cursor positioning code remains the same…
-        let line_index = if available_width_for_text > 0 {
-            self.cursor_pos as u16 / available_width_for_text
-        } else {
-            0
-        };
-        let col_index = if available_width_for_text > 0 {
-            self.cursor_pos as u16 % available_width_for_text
-        } else {
-            0
-        };
+        if self.focus == Focus::Input {
+            let line_index = if available_width_for_text > 0 {
+                self.cursor_pos as u16 / available_width_for_text
+            } else {
+                0
+            };
+            let col_index = if available_width_for_text > 0 {
+                self.cursor_pos as u16 % available_width_for_text
+            } else {
+                0
+            };
 
-        let cursor_x = input_chunks[0].x + 1 + col_index;
-        let cursor_y = input_chunks[0].y + 1 + line_index;
-
-        frame.set_cursor_position((cursor_x, cursor_y));
+            let cursor_x = input_chunks[0].x + 1 + col_index;
+            let cursor_y = input_chunks[0].y + 1 + line_index;
+            frame.set_cursor_position((cursor_x, cursor_y));
+        }
     }
 
-    fn handle_events(&mut self) -> Result<()> {
+    fn handle_events(&mut self) -> Result<(), std::io::Error> {
         match event::read()? {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 self.handle_key_event(key_event);
@@ -228,7 +266,6 @@ impl App {
             }
             _ => {}
         }
-
         Ok(())
     }
 
@@ -239,30 +276,49 @@ impl App {
         }
     }
 
-    /// Normal mode: feed keys into VimCmd parser. Supports operator-pending commands like 'd w'.
+    /// Normal mode: typed characters are interpreted as Vim commands.
     fn handle_key_event_normal_mode(&mut self, key_event: KeyEvent) {
-        let ch = match key_event.code {
+        match key_event.code {
+            KeyCode::Char('j') => {
+                if self.focus == Focus::Messages {
+                    if self.messages_cursor + 1 < self.messages.len() {
+                        self.messages_cursor += 1;
+                    } else {
+                        self.focus = Focus::Input;
+                    }
+                }
+            }
+            KeyCode::Char('k') => {
+                if self.focus == Focus::Messages {
+                    if self.messages_cursor > 0 {
+                        self.messages_cursor -= 1;
+                    }
+                } else {
+                    // safe assumption, there should always be a message
+                    if !self.messages.is_empty() {
+                        self.messages_cursor = self.messages.len() - 1;
+                    }
+                    self.focus = Focus::Messages;
+                }
+            }
             KeyCode::Char('q') => {
                 self.exit();
                 return;
             }
-            KeyCode::Char(c) => c,
-            _ => {
-                return;
+            // Use the Vim engine for the rest
+            KeyCode::Char(c) => {
+                self.normal_mode_buffer.push(c);
             }
+            _ => {}
         };
 
-        // 1) Add the pressed char to our normal-mode buffer
-        self.normal_mode_buffer.push(ch);
-
-        // 2) Parse the entire buffer with VimCmd
+        // Now parse the normal-mode buffer
         let mut vim_cmd = VimCommand::new(&self.normal_mode_buffer);
         let commands = vim_cmd.parse();
-
-        // 3) Apply the commands (if any)
         if !commands.is_empty() {
             vim_cmd.apply_cmds(
                 &mut self.mode,
+                &mut self.focus,
                 &mut self.cursor_pos,
                 &mut self.scroll_offset,
                 self.messages.len() as u16,
@@ -272,8 +328,7 @@ impl App {
                 commands,
             );
         }
-
-        // 4) Clear buffer if operator is no longer pending
+        // Clear if we're no longer pending
         if !vim_cmd.is_operator_pending() {
             self.normal_mode_buffer.clear();
         }
@@ -333,23 +388,30 @@ impl App {
     }
 
     fn scroll_to_bottom(&mut self) {
+        if !self.messages.is_empty() {
+            self.messages_cursor = self.messages.len() - 1;
+        }
         let total_lines = self.messages.len() as u16;
-        self.scroll_offset = total_lines;
+        self.scroll_offset = total_lines.saturating_sub(1);
     }
 
     fn scroll_up(&mut self, lines: u16) {
         self.scroll_offset = self.scroll_offset.saturating_sub(lines);
+        if self.messages_cursor as u16 >= self.scroll_offset {
+            // keep the messages_cursor in sync if needed
+        }
     }
 
     fn scroll_down(&mut self, lines: u16) {
         let total_lines = self.messages.len() as u16;
-        self.scroll_offset = (self.scroll_offset + lines).min(total_lines);
+        self.scroll_offset =
+            (self.scroll_offset + lines).min(total_lines.saturating_sub(1));
     }
 
     fn update_cursor_shape(
         &self,
         terminal: &mut DefaultTerminal,
-    ) -> Result<()> {
+    ) -> Result<(), std::io::Error> {
         match self.mode {
             Mode::Normal => {
                 terminal.backend_mut().execute(EnableBlinking)?;
@@ -366,30 +428,28 @@ impl App {
         }
         Ok(())
     }
-    fn mode_indicator_span(&self) -> ratatui::text::Span {
-        use ratatui::{
-            style::{Color, Style},
-            text::Span,
-        };
 
+    fn mode_indicator_span(&self) -> ratatui::text::Span {
         match self.mode {
             Mode::Normal => {
-                // If nothing is pending, just show “N”.
-                // Otherwise, show up to 4 typed chars, padded on the right if shorter.
                 if self.normal_mode_buffer.is_empty() {
-                    Span::styled(" N ", Style::default().fg(Color::Blue))
+                    Span::styled(
+                        format!(" N "),
+                        Style::default().fg(Color::Blue),
+                    )
                 } else {
-                    // Trim to 4 chars if user typed more
                     let display_str = &self.normal_mode_buffer
                         [..self.normal_mode_buffer.len().min(4)];
-                    // Pad to length=4 so it occupies a consistent space
                     let padded = format!("{:<4}", display_str);
 
-                    Span::styled(padded, Style::default().fg(Color::Blue))
+                    Span::styled(
+                        format!("{padded}"),
+                        Style::default().fg(Color::Blue),
+                    )
                 }
             }
             Mode::Insert => {
-                Span::styled(" I ", Style::default().fg(Color::Green))
+                Span::styled(format!(" I "), Style::default().fg(Color::Green))
             }
         }
     }
