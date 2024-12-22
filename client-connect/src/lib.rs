@@ -1,7 +1,7 @@
 use std::{mem, sync::Arc};
 
 use comms::Codable;
-use futures_util::{future,  SinkExt, StreamExt};
+use futures_util::{future, SinkExt, StreamExt};
 use tokio::{net::TcpStream, pin, sync::mpsc, task::JoinHandle};
 use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
@@ -180,8 +180,8 @@ async fn client_actor(
     );
 }
 
-/// Handle for a client connection that automatically closes the connection on drop (or explicit
-/// [`ClientConnection::close`].
+/// Handle for a client connection that automatically closes the connection on
+/// drop (or explicit [`ClientConnection::close`].
 pub struct ClientConnection {
     close_connection_channel:
         UnboundedBichannel<Option<CloseFrame>, Option<CloseFrame>>,
@@ -196,22 +196,21 @@ impl ClientConnection {
 
     fn async_drop(&mut self) {
         if let Some(actor_thread) = mem::take(&mut self.actor_thread) {
-        // Forgive me, Ferris, for I have async dropped.
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on( async {
+            // Forgive me, Ferris, for I have async dropped.
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on( async {
                 self.close_connection_channel.tx.send(Some(CloseFrame {
                     code: CloseCode::Normal,
                     reason:"client connection handle dropped".into(),
                 })).expect("channel with actor should be open when ClientConnection is being dropped");
                 if let Some(close_frame_response) = self.close_connection_channel.rx.recv().await {
                     println!("client closing connection: {:?}", close_frame_response);
-                } 
+                }
                 actor_thread.abort();
             });
-        });
+            });
         }
     }
-
 }
 
 impl Drop for ClientConnection {
@@ -220,15 +219,17 @@ impl Drop for ClientConnection {
     }
 }
 
-/// Spawns a client thread to communicate with the given server over a TLS-encrypted websocket,
-/// returning a client handle. The connection is closed when the handle is dropped.
+/// Spawns a client thread to communicate with the given server over a
+/// TLS-encrypted websocket, returning a client handle. The connection is closed
+/// when the handle is dropped.
 ///
 /// # Example
 ///
 /// ```no_run
 /// # use client_connect::ClientConnectionResult;
 /// # async fn foo() -> ClientConnectionResult<()> {
-/// let client_connection = client_connect::connect_to_server("wss://127.0.0.1:8080").await?;
+/// let client_connection =
+///     client_connect::connect_to_server("wss://127.0.0.1:8080").await?;
 /// # Ok(())
 /// # }
 /// ```

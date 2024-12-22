@@ -1,7 +1,7 @@
 use std::env;
-use tokio::io::AsyncBufReadExt;
 
 use client_connect::ClientConnectionResult;
+use tokio::io::AsyncBufReadExt;
 
 #[tokio::main]
 async fn main() -> ClientConnectionResult<()> {
