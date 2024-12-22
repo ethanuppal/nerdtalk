@@ -1,4 +1,4 @@
-use std::{mem, sync::Arc};
+use std::{fmt, mem, sync::Arc};
 
 use comms::Codable;
 use futures_util::{future, SinkExt, StreamExt};
@@ -13,6 +13,7 @@ use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream,
 };
 use webpki::types::{pem::PemObject, CertificateDer};
+use std::error::Error;
 
 /// An error that can occur on the client side.
 #[derive(Debug)]
@@ -26,12 +27,37 @@ pub enum ClientConnectionError {
     MalformedServerMessage(Message, comms::CodingErrorKind),
 }
 
+impl fmt::Display for ClientConnectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClientConnectionError::InvalidRootCertificate { message, cause } => {
+                cause.fmt(f)
+            }
+            ClientConnectionError::WebSocketFailure(cause) => {
+                cause.fmt(f)
+            }
+            ClientConnectionError::UnexpectedWebSocketMessage(message) => {
+                write!(f, "Unexpected WebSocket message: {:?}", message)
+            }
+            ClientConnectionError::MalformedServerMessage(message, cause) => {
+                write!(
+                    f,
+                    "Malformed server message {:?}: {}",
+                    message, cause
+                )
+            }
+        }
+    }
+}
+
+impl Error for ClientConnectionError {}
+
 /// [`std::result::Result`] wrapper for client errors.
 pub type ClientConnectionResult<T> =
     std::result::Result<T, ClientConnectionError>;
 
 /// Opens a TLS-encrypted web socket to the server at `server_address`.
-pub async fn open_websocket<R: IntoClientRequest + Unpin>(
+async fn open_websocket<R: IntoClientRequest + Unpin>(
     server_address: R,
 ) -> ClientConnectionResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let mut root_store;

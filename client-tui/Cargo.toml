@@ -13,3 +13,5 @@ color-eyre.workspace = true
 crossterm.workspace = true
 copypasta.workspace = true
 regex.workspace = true
+client-connect.workspace = true
+comms.workspace = true
