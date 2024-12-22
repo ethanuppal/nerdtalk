@@ -12,15 +12,15 @@ const MessageLogDisplay: React.FC<MessageLogDisplayProps> = observer(
     useEffect(() => {
       messageLogStore.appendMessage({
         body: 'hello',
-        sender: 'haadi',
+        author: 'haadi',
         timestamp: 'blah',
       })
     }, [])
 
     return (
-      <div className="flex flex-grow flex-col gap-1 overflow-scroll rounded border-none bg-secondary-color p-2 text-sm">
-        {messageLogStore.runningLog.map((message) => (
-          <TextBox timestamp={message.timestamp} messageBody={message.body} />
+      <div className="flex flex-grow flex-col gap-1 overflow-scroll rounded border-none bg-secondary-color text-sm">
+        {messageLogStore.foldAuthors.map(message => (
+          <TextBox {...message} />
         ))}
       </div>
     )
