@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{mem, sync::Arc};
 
 use comms::Codable;
 use futures_util::{future,  SinkExt, StreamExt};
@@ -185,7 +185,7 @@ async fn client_actor(
 pub struct ClientConnection {
     close_connection_channel:
         UnboundedBichannel<Option<CloseFrame>, Option<CloseFrame>>,
-    actor_thread: JoinHandle<()>,
+    actor_thread: Option<JoinHandle<()>>,
 }
 
 impl ClientConnection {
@@ -195,6 +195,7 @@ impl ClientConnection {
     }
 
     fn async_drop(&mut self) {
+        if let Some(actor_thread) = mem::take(&mut self.actor_thread) {
         // Forgive me, Ferris, for I have async dropped.
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on( async {
@@ -205,9 +206,10 @@ impl ClientConnection {
                 if let Some(close_frame_response) = self.close_connection_channel.rx.recv().await {
                     println!("client closing connection: {:?}", close_frame_response);
                 } 
-                self.actor_thread.abort();
+                actor_thread.abort();
             });
         });
+        }
     }
 
 }
@@ -251,7 +253,7 @@ pub async fn connect_to_server<R: IntoClientRequest + Unpin>(
     Ok((
         ClientConnection {
             close_connection_channel: local_bichannel,
-            actor_thread,
+            actor_thread: Some(actor_thread),
         },
         user_bichannel.tx,
         user_bichannel.rx,

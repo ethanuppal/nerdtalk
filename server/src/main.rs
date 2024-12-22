@@ -198,20 +198,12 @@ async fn new_client_connection<D: Display + Clone>(
                             todo!("{:?}", error);
                         }
                     }
-                    // Ok(Message::Binary(data)) => {
-                    // }
-                    // Ok(Message::Close(close_frame)) => {
-                    //     println!("server closing connecting with ");
-                    //     to_client_tx.send(Message::Close(close_frame));
-                    // }
-                    // Err(e) => panic!("server got error: {:?}", e),
-                    // other => panic!("server got non binary data: {:?}", other),
                 }
             },
             async {
                 while let Some(message) = write_websocket_rx.recv().await {
                     if matches!(message, Message::Close(_)) {
-                        websocket_write.send(message).await.expect("todo");
+                        // websocket_write.send(message).await.expect("todo");
                         break;
                     }
                     websocket_write.send(message).await.expect("todo");
