@@ -1,7 +1,7 @@
 use std::env;
 use tokio::io::AsyncBufReadExt;
 
-use client_connect::{ClientConnection, ClientConnectionResult};
+use client_connect::ClientConnectionResult;
 
 #[tokio::main]
 async fn main() -> ClientConnectionResult<()> {
@@ -10,7 +10,8 @@ async fn main() -> ClientConnectionResult<()> {
         .expect("Pass the server's wss:// address as a command-line argument");
     let username = env::args().nth(2).expect("2nd argument is username");
 
-    let mut connection = ClientConnection::connect_to_server(&url).await?;
+    let (connection, tx, mut rx) =
+        client_connect::connect_to_server(&url).await?;
 
     let stdin = tokio::io::stdin();
     let mut lines = tokio::io::BufReader::new(stdin).lines();
@@ -18,14 +19,29 @@ async fn main() -> ClientConnectionResult<()> {
         if line.is_empty() {
             break;
         }
-        connection.send(comms::ClientMessage::Append(comms::AppendChatEntry {
+        tx.send(comms::ClientMessage::Append(comms::AppendChatEntry {
             username: username.clone(),
             content: line,
-        }));
-        if let Some(get) = connection.recv().await {
-            println!("receive {:?}", get);
-        }
+        }))
+        .expect("todo");
     }
+
+    tokio::spawn(async move {
+        while let Some(server_message) = rx.recv().await {
+            let server_message = server_message.expect("todo");
+            match server_message {
+                comms::ServerMessage::NewEntry(chat_log_entry) => {
+                    println!(
+                        "{}: {}",
+                        chat_log_entry.username, chat_log_entry.content
+                    );
+                }
+            }
+        }
+    });
+
+    // you can also just let this drop
+    connection.close();
 
     Ok(())
 }

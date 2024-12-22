@@ -1,11 +1,15 @@
 use std::sync::Arc;
 
 use comms::Codable;
-use futures_util::{SinkExt, StreamExt};
-use tokio::{net::TcpStream, sync::mpsc, task::JoinHandle};
+use futures_util::{future,  SinkExt, StreamExt};
+use tokio::{net::TcpStream, pin, sync::mpsc, task::JoinHandle};
 use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
-    tungstenite::{self, client::IntoClientRequest, protocol::Message},
+    tungstenite::{
+        self,
+        client::IntoClientRequest,
+        protocol::{frame::coding::CloseCode, CloseFrame, Message},
+    },
     Connector, MaybeTlsStream, WebSocketStream,
 };
 use webpki::types::{pem::PemObject, CertificateDer};
@@ -98,42 +102,48 @@ fn unbounded_bichannel<From, To>(
     )
 }
 
-enum ActorWrapper<T> {
-    Wrapped(T),
-    Close,
-}
-
 async fn client_actor(
     websocket: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    close_connection_channel: UnboundedBichannel<
+        Option<CloseFrame>,
+        Option<CloseFrame>,
+    >,
     channel_with_user: UnboundedBichannel<
-        ActorWrapper<ClientConnectionResult<comms::ServerMessage>>,
-        ActorWrapper<comms::ClientMessage>,
+        ClientConnectionResult<comms::ServerMessage>,
+        comms::ClientMessage,
     >,
 ) {
     println!("client actor spawned");
 
     let (mut websocket_write, mut websocket_read) = websocket.split();
-    let UnboundedBichannel { tx, mut rx } = channel_with_user;
+    let UnboundedBichannel {
+        tx: close_tx,
+        rx: mut close_rx,
+    } = close_connection_channel;
+    let UnboundedBichannel {
+        tx: user_tx,
+        rx: mut user_rx,
+    } = channel_with_user;
 
     tokio::join!(
         async {
             while let Some(Ok(message)) = websocket_read.next().await {
-                match &message {
+                match message.clone() {
                     Message::Binary(message_bytes) => {
                         let server_message =
-                        comms::ServerMessage::try_from_bytes(message_bytes)
+                        comms::ServerMessage::try_from_bytes(&message_bytes)
                             .map_err(|coding_error| {
                                 ClientConnectionError::MalformedServerMessage(
                                     message,
                                     *coding_error,
                                 )
                             });
-                        tx.send(ActorWrapper::Wrapped(server_message)).expect(
+                        user_tx.send(server_message).expect(
                             "receiver should not have been dropped/closed",
                         );
                     }
-                    Message::Close(_) => {
-                        tx.send(ActorWrapper::Close).expect(
+                    Message::Close(close_frame) => {
+                        close_tx.send(close_frame).expect(
                             "receiver should not have been dropped/closed",
                         );
                         break;
@@ -143,19 +153,25 @@ async fn client_actor(
             }
         },
         async {
-            while let Some(command) = rx.recv().await {
-                match command {
-                    ActorWrapper::Wrapped(client_message) => {
+            loop {
+                let close_frame = close_rx.recv();
+                let client_message = user_rx.recv();
+                pin!(close_frame, client_message);
+                match future::select(client_message, close_frame).await {
+                    future::Either::Left((Some(client_message), _)) => {
                         websocket_write
                             .send(Message::binary(client_message.to_bytes()))
                             .await
                             .expect("todo");
                     }
-                    ActorWrapper::Close => {
+                    future::Either::Right((Some(close_frame), _)) => {
                         websocket_write
-                            .send(Message::Close(None))
+                            .send(Message::Close(close_frame))
                             .await
                             .expect("failed to flush item to websocket ig?");
+                        break;
+                    }
+                    _ => {
                         break;
                     }
                 }
@@ -164,80 +180,80 @@ async fn client_actor(
     );
 }
 
+/// Handle for a client connection that automatically closes the connection on drop (or explicit
+/// [`ClientConnection::close`].
 pub struct ClientConnection {
-    channel_with_actor: UnboundedBichannel<
-        ActorWrapper<comms::ClientMessage>,
-        ActorWrapper<ClientConnectionResult<comms::ServerMessage>>,
-    >,
+    close_connection_channel:
+        UnboundedBichannel<Option<CloseFrame>, Option<CloseFrame>>,
     actor_thread: JoinHandle<()>,
 }
 
 impl ClientConnection {
-    /// Spawns a client thread to communicate with the given server over a TLS-encrypted websocket,
-    /// returning a client handle. The connection is closed when the handle is dropped.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use client_connect::{ClientConnection, ClientConnectionResult};
-    /// # async fn foo() -> ClientConnectionResult<()> {
-    /// let client_connection = ClientConnection::connect_to_server("wss://127.0.0.1:8080").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn connect_to_server<R: IntoClientRequest + Unpin>(
-        server_address: R,
-    ) -> ClientConnectionResult<
-        Self,
-        // mpsc::UnboundedSender<comms::ClientMessage>,
-        // mpsc::UnboundedReceiver<comms::ServerMessage>,
-    > {
-        let websocket = open_websocket(server_address).await?;
-
-        let (local_bichannel, actor_bichannel) = unbounded_bichannel();
-
-        let actor_thread =
-            tokio::spawn(client_actor(websocket, actor_bichannel));
-
-        Ok(Self {
-            channel_with_actor: local_bichannel,
-            actor_thread,
-        })
+    // Manually closes the connection.
+    pub fn close(mut self) {
+        self.async_drop();
     }
 
-    // TODO: figure out how to directly expose channels someho
-    pub fn send(&self, message: comms::ClientMessage) {
-        let _ = self
-            .channel_with_actor
-            .tx
-            .send(ActorWrapper::Wrapped(message));
-    }
-
-    pub async fn recv(&mut self) -> Option<comms::ServerMessage> {
-        self.channel_with_actor
-            .rx
-            .recv()
-            .await
-            .map(|wrapped| match wrapped {
-                ActorWrapper::Wrapped(message) => message.expect("todo"),
-                ActorWrapper::Close => unreachable!(),
-            })
-    }
-}
-
-impl Drop for ClientConnection {
-    fn drop(&mut self) {
+    fn async_drop(&mut self) {
         // Forgive me, Ferris, for I have async dropped.
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on( async {
-                self.channel_with_actor.tx.send(ActorWrapper::Close).expect("channel with actor should be open when ClientConnection is being dropped");
-                while let Some(server_message) = self.channel_with_actor.rx.recv().await {
-                    if matches!(server_message, ActorWrapper::Close) {
-                        break;
-                    }
-                }
+                self.close_connection_channel.tx.send(Some(CloseFrame {
+                    code: CloseCode::Normal,
+                    reason:"client connection handle dropped".into(),
+                })).expect("channel with actor should be open when ClientConnection is being dropped");
+                if let Some(close_frame_response) = self.close_connection_channel.rx.recv().await {
+                    println!("client closing connection: {:?}", close_frame_response);
+                } 
                 self.actor_thread.abort();
             });
         });
     }
+
+}
+
+impl Drop for ClientConnection {
+    fn drop(&mut self) {
+        self.async_drop();
+    }
+}
+
+/// Spawns a client thread to communicate with the given server over a TLS-encrypted websocket,
+/// returning a client handle. The connection is closed when the handle is dropped.
+///
+/// # Example
+///
+/// ```no_run
+/// # use client_connect::ClientConnectionResult;
+/// # async fn foo() -> ClientConnectionResult<()> {
+/// let client_connection = client_connect::connect_to_server("wss://127.0.0.1:8080").await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn connect_to_server<R: IntoClientRequest + Unpin>(
+    server_address: R,
+) -> ClientConnectionResult<(
+    ClientConnection,
+    mpsc::UnboundedSender<comms::ClientMessage>,
+    mpsc::UnboundedReceiver<ClientConnectionResult<comms::ServerMessage>>,
+)> {
+    let websocket = open_websocket(server_address).await?;
+
+    let (local_bichannel, actor_bichannel) = unbounded_bichannel();
+    let (user_bichannel, other_actor_bichannel) = unbounded_bichannel();
+
+    let actor_thread = tokio::spawn(client_actor(
+        websocket,
+        actor_bichannel,
+        other_actor_bichannel,
+    ));
+
+    Ok((
+        ClientConnection {
+            close_connection_channel: local_bichannel,
+            actor_thread,
+        },
+        user_bichannel.tx,
+        user_bichannel.rx,
+    ))
 }
