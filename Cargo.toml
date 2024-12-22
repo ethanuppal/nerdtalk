@@ -1,5 +1,5 @@
 [workspace]
-members = ["chat", "client-connect", "comms", "server"]
+members = ["chat", "client-connect", "client-tui", "comms", "server"]
 resolver = "2"
 
 [workspace.package]
@@ -44,5 +44,9 @@ syn = "2.0.90"
 quote = "1.0.37"
 
 ratatui = "0.29.0"
+color-eyre = "0.6.3"
+crossterm = "0.28.1"
+copypasta = "0.8"
+regex = "1.11.1"
 
 chrono = { version = "0.4.39", features = ["serde", "clock"] }
