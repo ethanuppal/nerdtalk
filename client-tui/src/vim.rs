@@ -114,7 +114,7 @@ impl Iterator for VimCommand<'_> {
     }
 }
 
-impl<'a> VimCommand<'a> {
+impl VimCommand<'_> {
     /// Parse the entire input buffer into zero or more [`Command`]s.
     pub fn parse(&mut self) -> Vec<Command> {
         let mut commands = Vec::new();
@@ -335,19 +335,15 @@ impl<'a> VimCommand<'a> {
                         if *focus == Focus::Messages {
                             // Not implemented. Could do horizontal scroll in
                             // messages
-                        } else {
-                            if *cursor_pos > 0 {
-                                *cursor_pos -= 1;
-                            }
+                        } else if *cursor_pos > 0 {
+                            *cursor_pos -= 1;
                         }
                     }
                     SingleCommand::MoveRight => {
                         if *focus == Focus::Messages {
                             // Not implemented
-                        } else {
-                            if *cursor_pos < text.len() {
-                                *cursor_pos += 1;
-                            }
+                        } else if *cursor_pos < text.len() {
+                            *cursor_pos += 1;
                         }
                     }
                     SingleCommand::MoveUp => {
@@ -506,20 +502,16 @@ fn change_helper(
 
 fn yank_helper(
     cursor_pos: &mut usize,
-    text: &mut String,
+    text: &str,
     clipboard: &mut copypasta::ClipboardContext,
     noun: &Noun,
 ) {
-    match noun {
-        // e.g. "yw" => yank until next word boundary
-        Noun::Motion(Motion::ForwardWord) => {
-            let end_pos = find_next_word_boundary(text, *cursor_pos);
-            if end_pos > *cursor_pos {
-                let selection = &text[*cursor_pos..end_pos];
-                let _ = clipboard.set_contents(selection.to_string());
-            }
+    if let Noun::Motion(Motion::ForwardWord) = noun {
+        let end_pos = find_next_word_boundary(text, *cursor_pos);
+        if end_pos > *cursor_pos {
+            let selection = &text[*cursor_pos..end_pos];
+            let _ = clipboard.set_contents(selection.to_string());
         }
-        _ => {}
     }
 }
 
