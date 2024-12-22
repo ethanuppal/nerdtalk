@@ -1,4 +1,4 @@
-use std::{env, io, sync::Arc};
+use std::{env, io, sync::Arc, time};
 
 use copypasta::ClipboardContext;
 use crossterm::{
@@ -19,7 +19,7 @@ use ratatui::{
 };
 
 mod vim;
-use tokio::sync::{mpsc, RwLock, RwLockReadGuard};
+use tokio::sync::{mpsc, RwLock};
 use vim::{Mode, VimCommand};
 
 /// Indicates which part of the UI is currently in “focus.”
@@ -109,12 +109,17 @@ impl App {
         terminal: &mut DefaultTerminal,
         messages: Arc<RwLock<Vec<String>>>,
     ) -> Result<(), io::Error> {
+        let mut interval = tokio::time::interval(time::Duration::from_millis(20));
         while !self.exit {
-            let messages = messages.read().await;
-            let messages_ref = &*messages;
-            terminal.draw(|frame| self.draw(messages_ref, frame))?;
-            self.update_cursor_shape(terminal)?;
-            self.handle_events(messages_ref)?;
+            {
+                let messages = messages.read().await;
+                let messages_ref = &*messages;
+                terminal.draw(|frame| self.draw(messages_ref, frame))?;
+                self.update_cursor_shape(terminal)?;
+                self.handle_events(messages_ref)?;
+                drop(messages);
+            }
+            interval.tick().await;
         }
         Ok(())
     }
@@ -422,11 +427,12 @@ impl App {
     fn send_message(&mut self, messages: &[String]) {
         let trimmed = self.input.trim();
         if !trimmed.is_empty() {
-            self.tx
-                .send(comms::ClientMessage::Append(comms::AppendChatEntry {
+            self.tx.send(comms::ClientMessage::Append(
+                comms::AppendChatEntry {
                     username: "me".to_string(),
                     content: trimmed.to_string(),
-                }));
+                },
+            ));
         }
         self.input.clear();
         self.cursor_pos = 0;
