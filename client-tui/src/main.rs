@@ -19,10 +19,7 @@ use ratatui::{
 };
 
 mod vim;
-use tokio::{
-    sync::{mpsc, RwLock},
-    time::Instant,
-};
+use tokio::sync::{mpsc, RwLock};
 use vim::{Mode, VimCommand};
 
 /// Indicates which part of the UI is currently in “focus.”

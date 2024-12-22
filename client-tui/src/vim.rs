@@ -1,36 +1,12 @@
+use crate::Focus;
 use copypasta::ClipboardProvider;
 use regex::Regex;
-
-// We import the new Focus enum so we can block editing if focus ==
-// Messages
-use crate::Focus;
 
 /// Different Vim Modes
 #[derive(Debug)]
 pub enum Mode {
     Insert,
     Normal,
-}
-
-/// Single-keystroke commands, e.g. `i`, `x`, `w`, etc.
-#[derive(Clone, Debug)]
-pub enum SingleCommand {
-    Insert,
-    Append,
-    InsertSOL,
-    AppendEOL,
-    DeleteCharUnderCursor,
-    MoveLeft,
-    MoveRight,
-    MoveUp,
-    MoveDown,
-    ForwardWord,
-    ForwardBigWord,
-    BackwardWord,
-    BackwardBigWord,
-    Paste,
-    StartFile,
-    EndFile,
 }
 
 /// A [`Motion`] indicates movement over some text, e.g. `w`, `b`, `h`, etc.
@@ -44,18 +20,28 @@ pub enum Motion {
     ForwardBigWord,
     BackwardWord,
     BackwardBigWord,
-    _StartFile,
-    _EndFile,
+    StartFile,
+    EndFile,
+}
+
+/// An [`Edit`] indicates a command which edits the text or sets up for an edit.
+#[derive(Clone, Debug)]
+pub enum Edit {
+    Insert,
+    Append,
+    InsertSOL,
+    AppendEOL,
+    DeleteChar,
+    DeleteEOL,
+    Paste,
 }
 
 /// A Vim "Noun". This is the object following a verb (e.g. `dw`, `ciw`).
 #[derive(Clone, Debug)]
 pub enum Noun {
     Motion(Motion),
-    InnerWord,    // "iw"
-    InnerBigWord, // "iW"
-    Word,
-    BigWord,
+    InnerWord,
+    InnerBigWord,
     Sentence,
     Parentheses,
     Braces,
@@ -63,6 +49,14 @@ pub enum Noun {
     Apostrophes,
     Quotes,
     Backtick,
+    Pending, // temporary state for initialization
+}
+
+/// Single-keystroke commands, e.g. `i`, `x`, `w`, etc.
+#[derive(Clone, Debug)]
+pub enum SingleCommand {
+    Edit(Edit),
+    Motion(Motion),
 }
 
 /// Our "operators" can embed a `Noun` (e.g., `delete(word)`).
@@ -156,53 +150,69 @@ impl VimCommand<'_> {
             } else {
                 match ch {
                     // Standalone commands
-                    'i' => commands
-                        .push(Command::SingleCommand(SingleCommand::Insert)),
-                    'I' => commands
-                        .push(Command::SingleCommand(SingleCommand::InsertSOL)),
-                    'a' => commands
-                        .push(Command::SingleCommand(SingleCommand::Append)),
-                    'A' => commands
-                        .push(Command::SingleCommand(SingleCommand::AppendEOL)),
-                    'h' => commands
-                        .push(Command::SingleCommand(SingleCommand::MoveLeft)),
-                    'l' => commands
-                        .push(Command::SingleCommand(SingleCommand::MoveRight)),
-                    'j' => commands
-                        .push(Command::SingleCommand(SingleCommand::MoveDown)),
-                    'k' => commands
-                        .push(Command::SingleCommand(SingleCommand::MoveUp)),
+                    'i' => commands.push(Command::SingleCommand(
+                        SingleCommand::Edit(Edit::Insert),
+                    )),
+                    'I' => commands.push(Command::SingleCommand(
+                        SingleCommand::Edit(Edit::InsertSOL),
+                    )),
+                    'a' => commands.push(Command::SingleCommand(
+                        SingleCommand::Edit(Edit::Append),
+                    )),
+                    'A' => commands.push(Command::SingleCommand(
+                        SingleCommand::Edit(Edit::AppendEOL),
+                    )),
+                    'h' => commands.push(Command::SingleCommand(
+                        SingleCommand::Motion(Motion::Left),
+                    )),
+                    'l' => commands.push(Command::SingleCommand(
+                        SingleCommand::Motion(Motion::Right),
+                    )),
+                    'j' => commands.push(Command::SingleCommand(
+                        SingleCommand::Motion(Motion::Down),
+                    )),
+                    'k' => commands.push(Command::SingleCommand(
+                        SingleCommand::Motion(Motion::Up),
+                    )),
                     'w' => commands.push(Command::SingleCommand(
-                        SingleCommand::ForwardWord,
+                        SingleCommand::Motion(Motion::ForwardWord),
                     )),
                     'W' => commands.push(Command::SingleCommand(
-                        SingleCommand::ForwardBigWord,
+                        SingleCommand::Motion(Motion::ForwardBigWord),
                     )),
                     'b' => commands.push(Command::SingleCommand(
-                        SingleCommand::BackwardWord,
+                        SingleCommand::Motion(Motion::BackwardWord),
                     )),
                     'B' => commands.push(Command::SingleCommand(
-                        SingleCommand::BackwardBigWord,
+                        SingleCommand::Motion(Motion::BackwardBigWord),
                     )),
                     'x' => commands.push(Command::SingleCommand(
-                        SingleCommand::DeleteCharUnderCursor,
+                        SingleCommand::Edit(Edit::DeleteChar),
                     )),
-                    'p' => commands
-                        .push(Command::SingleCommand(SingleCommand::Paste)),
-                    '0' => commands
-                        .push(Command::SingleCommand(SingleCommand::StartFile)),
-                    '$' => commands
-                        .push(Command::SingleCommand(SingleCommand::EndFile)),
+                    'p' => commands.push(Command::SingleCommand(
+                        SingleCommand::Edit(Edit::Paste),
+                    )),
+                    '0' => commands.push(Command::SingleCommand(
+                        SingleCommand::Motion(Motion::StartFile),
+                    )),
+                    '$' => commands.push(Command::SingleCommand(
+                        SingleCommand::Motion(Motion::EndFile),
+                    )),
+                    'D' => commands.push(Command::SingleCommand(
+                        SingleCommand::Edit(Edit::DeleteEOL),
+                    )),
 
                     // Operators that require a Noun
                     'd' => {
-                        self.operator = Some(MultiCommand::Delete(Noun::Word))
+                        self.operator =
+                            Some(MultiCommand::Delete(Noun::Pending))
                     }
                     'c' => {
-                        self.operator = Some(MultiCommand::Change(Noun::Word));
+                        self.operator =
+                            Some(MultiCommand::Change(Noun::Pending));
                     }
                     'y' => {
-                        self.operator = Some(MultiCommand::Yank(Noun::Word));
+                        self.operator = Some(MultiCommand::Yank(Noun::Pending));
                     }
 
                     // A single multi-command that doesn't need a Noun
@@ -285,130 +295,120 @@ impl VimCommand<'_> {
                 // SingleCommand actions
                 // -----------------------------
                 Command::SingleCommand(single_cmd) => match single_cmd {
-                    SingleCommand::Insert
-                    | SingleCommand::Append
-                    | SingleCommand::AppendEOL
-                    | SingleCommand::InsertSOL
-                    | SingleCommand::DeleteCharUnderCursor
-                    | SingleCommand::Paste
-                        if *focus == Focus::Input =>
-                    {
-                        match single_cmd {
-                            SingleCommand::Insert => {
-                                *mode = Mode::Insert;
-                            }
-                            SingleCommand::Append => {
-                                *mode = Mode::Insert;
-                                if *cursor_pos < text.len() {
-                                    *cursor_pos += 1;
+                    SingleCommand::Edit(edit) => {
+                        if *focus == Focus::Input {
+                            match edit {
+                                Edit::Insert => {
+                                    *mode = Mode::Insert;
+                                }
+                                Edit::Append => {
+                                    *mode = Mode::Insert;
+                                    if *cursor_pos < text.len() {
+                                        *cursor_pos += 1;
+                                    }
+                                }
+                                Edit::InsertSOL => {
+                                    *mode = Mode::Insert;
+                                    *cursor_pos = 0;
+                                }
+                                Edit::AppendEOL => {
+                                    *mode = Mode::Insert;
+                                    *cursor_pos = text.len();
+                                }
+                                Edit::DeleteChar => {
+                                    if *cursor_pos < text.len() {
+                                        let removed_char =
+                                            text.remove(*cursor_pos);
+                                        let _ = clipboard.set_contents(
+                                            removed_char.to_string(),
+                                        );
+                                    }
+                                }
+                                Edit::DeleteEOL => {
+                                    if *cursor_pos < text.len() {
+                                        let removed = text
+                                            .drain(*cursor_pos..)
+                                            .collect::<String>();
+                                        let _ = clipboard.set_contents(removed);
+                                    }
+                                }
+                                Edit::Paste => {
+                                    if let Ok(clip_text) =
+                                        clipboard.get_contents()
+                                    {
+                                        text.insert_str(
+                                            *cursor_pos,
+                                            &clip_text,
+                                        );
+                                        *cursor_pos += clip_text.len();
+                                    }
                                 }
                             }
-                            SingleCommand::InsertSOL => {
-                                *mode = Mode::Insert;
-                                *cursor_pos = 0;
-                            }
-                            SingleCommand::AppendEOL => {
-                                *mode = Mode::Insert;
-                                *cursor_pos = text.len();
-                            }
-                            SingleCommand::DeleteCharUnderCursor => {
-                                if *cursor_pos < text.len() {
-                                    let removed_char = text.remove(*cursor_pos);
-                                    let _ = clipboard
-                                        .set_contents(removed_char.to_string());
-                                }
-                            }
-                            SingleCommand::Paste => {
-                                if let Ok(clip_text) = clipboard.get_contents()
-                                {
-                                    text.insert_str(*cursor_pos, &clip_text);
-                                    *cursor_pos += clip_text.len();
-                                }
-                            }
-                            _ => {}
                         }
                     }
 
                     // Movement commands are allowed in *both* focuses, but do
                     // different things
-                    SingleCommand::MoveLeft => {
-                        if *focus == Focus::Messages {
-                            // Not implemented. Could do horizontal scroll in
-                            // messages
-                        } else if *cursor_pos > 0 {
-                            *cursor_pos -= 1;
-                        }
-                    }
-                    SingleCommand::MoveRight => {
-                        if *focus == Focus::Messages {
-                            // Not implemented
-                        } else if *cursor_pos < text.len() {
-                            *cursor_pos += 1;
-                        }
-                    }
-                    SingleCommand::MoveUp => {
-                        if *focus == Focus::Messages {
-                            *message_pos = message_pos.saturating_sub(1);
-                        }
-                    }
-                    SingleCommand::MoveDown => {
-                        if *focus == Focus::Messages {
-                            // Scroll down or move cursor
-                            *message_pos = (*message_pos + 1).min(height);
-                        }
-                    }
-
-                    // Word motions (w/W/b/B)
-                    SingleCommand::ForwardWord
-                    | SingleCommand::ForwardBigWord
-                    | SingleCommand::BackwardWord
-                    | SingleCommand::BackwardBigWord => {
-                        if *focus == Focus::Input {
-                            // Old logic for input
-                            match single_cmd {
-                                SingleCommand::ForwardWord => {
-                                    *cursor_pos = find_next_word_boundary(
-                                        text,
-                                        *cursor_pos,
-                                    );
-                                }
-                                SingleCommand::ForwardBigWord => {
-                                    *cursor_pos = find_next_big_word_boundary(
-                                        text,
-                                        *cursor_pos,
-                                    );
-                                }
-                                SingleCommand::BackwardWord => {
-                                    *cursor_pos = find_prev_word_boundary(
-                                        text,
-                                        *cursor_pos,
-                                    );
-                                }
-                                SingleCommand::BackwardBigWord => {
-                                    *cursor_pos = find_prev_big_word_boundary(
-                                        text,
-                                        *cursor_pos,
-                                    );
-                                }
-                                _ => {}
+                    SingleCommand::Motion(motion) => match motion {
+                        Motion::Left => {
+                            if *focus == Focus::Messages {
+                                // Not implemented. Could do horizontal scroll in
+                                // messages
+                            } else if *cursor_pos > 0 {
+                                *cursor_pos -= 1;
                             }
                         }
-                    }
-                    SingleCommand::StartFile => {
-                        if *focus == Focus::Messages {
-                            *message_pos = 0;
-                        } else {
-                            *cursor_pos = 0;
+                        Motion::Right => {
+                            if *focus == Focus::Messages {
+                                // Not implemented
+                            } else if *cursor_pos < text.len() {
+                                *cursor_pos += 1;
+                            }
                         }
-                    }
-                    SingleCommand::EndFile => {
-                        if *focus == Focus::Messages {
-                            *message_pos = height;
-                        } else {
-                            *cursor_pos = text.len();
+                        Motion::Up => {
+                            if *focus == Focus::Messages {
+                                *message_pos = message_pos.saturating_sub(1);
+                            }
                         }
-                    }
-                    _ => {}
+                        Motion::Down => {
+                            if *focus == Focus::Messages {
+                                // Scroll down or move cursor
+                                *message_pos = (*message_pos + 1).min(height);
+                            }
+                        }
+
+                        Motion::ForwardWord => {
+                            *cursor_pos =
+                                find_next_word_boundary(text, *cursor_pos);
+                        }
+                        Motion::ForwardBigWord => {
+                            *cursor_pos =
+                                find_next_big_word_boundary(text, *cursor_pos);
+                        }
+                        Motion::BackwardWord => {
+                            *cursor_pos =
+                                find_prev_word_boundary(text, *cursor_pos);
+                        }
+                        Motion::BackwardBigWord => {
+                            *cursor_pos =
+                                find_prev_big_word_boundary(text, *cursor_pos);
+                        }
+
+                        Motion::StartFile => {
+                            if *focus == Focus::Messages {
+                                *message_pos = 0;
+                            } else {
+                                *cursor_pos = 0;
+                            }
+                        }
+                        Motion::EndFile => {
+                            if *focus == Focus::Messages {
+                                *message_pos = height;
+                            } else {
+                                *cursor_pos = text.len();
+                            }
+                        }
+                    },
                 },
 
                 // -----------------------------
@@ -472,6 +472,14 @@ fn delete_helper(
                 let _ = clipboard.set_contents(removed);
             }
         }
+        Noun::Motion(Motion::ForwardBigWord) => {
+            let end_pos = find_next_big_word_boundary(text, *cursor_pos);
+            if end_pos > *cursor_pos {
+                let removed =
+                    text.drain(*cursor_pos..end_pos).collect::<String>();
+                let _ = clipboard.set_contents(removed);
+            }
+        }
         Noun::Motion(Motion::BackwardWord) => {
             let start_pos = find_prev_word_boundary(text, *cursor_pos);
             if start_pos < *cursor_pos {
@@ -481,8 +489,19 @@ fn delete_helper(
                 *cursor_pos = start_pos;
             }
         }
+        Noun::Motion(Motion::BackwardBigWord) => {
+            let start_pos = find_prev_big_word_boundary(text, *cursor_pos);
+            if start_pos < *cursor_pos {
+                let removed =
+                    text.drain(start_pos..*cursor_pos).collect::<String>();
+                let _ = clipboard.set_contents(removed);
+                *cursor_pos = start_pos;
+            }
+        }
         Noun::InnerWord => {
-            // Example of deleting "inner word"
+            todo!()
+        }
+        Noun::InnerBigWord => {
             todo!()
         }
         _ => {}
