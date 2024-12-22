@@ -1,7 +1,8 @@
 use copypasta::ClipboardProvider;
 use regex::Regex;
 
-// We import the new Focus enum so we can block editing if focus == Messages
+// We import the new Focus enum so we can block editing if focus ==
+// Messages
 use crate::Focus;
 
 /// Different Vim Modes
@@ -83,7 +84,8 @@ pub enum Command {
     MultiCommand(MultiCommand),
 }
 
-/// Simple [`VimCommand`] parser. Tracks an optional (pending) operator (e.g. `d`, `c`, `y`).
+/// Simple [`VimCommand`] parser. Tracks an optional (pending) operator (e.g.
+/// `d`, `c`, `y`).
 pub struct VimCommand<'a> {
     input: &'a str,
     x_pos: usize,
@@ -327,10 +329,12 @@ impl<'a> VimCommand<'a> {
                         }
                     }
 
-                    // Movement commands are allowed in *both* focuses, but do different things
+                    // Movement commands are allowed in *both* focuses, but do
+                    // different things
                     SingleCommand::MoveLeft => {
                         if *focus == Focus::Messages {
-                            // Not implemented. Could do horizontal scroll in messages
+                            // Not implemented. Could do horizontal scroll in
+                            // messages
                         } else {
                             if *cursor_pos > 0 {
                                 *cursor_pos -= 1;

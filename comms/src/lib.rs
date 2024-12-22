@@ -1,3 +1,5 @@
+pub use bincode::{Error as CodingError, ErrorKind as CodingErrorKind};
+use chat::ChatLogEntry;
 use serde::{Deserialize, Serialize};
 
 pub trait Codable {
@@ -8,7 +10,7 @@ pub trait Codable {
         bincode::serialize(self).expect("failed to serialize data")
     }
 
-    fn try_from_bytes<'a>(bytes: &'a [u8]) -> bincode::Result<Self>
+    fn try_from_bytes<'a>(bytes: &'a [u8]) -> Result<Self, CodingError>
     where
         Self: Deserialize<'a>,
     {
@@ -17,25 +19,25 @@ pub trait Codable {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum ClientRequest {
-    Append {
-        content: String,
-        sequence_number: usize,
-    },
-    Ping {
-        last_slot_number: usize,
-    },
+pub struct AppendChatEntry {
+    pub username: String,
+    pub content: String,
 }
-
-impl Codable for ClientRequest {}
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum ServerReply {
-    AppendAck,
-    Pong {
-        client_last_slot_number: usize,
-        missing: Vec<String>,
+pub enum ClientMessage {
+    Append(AppendChatEntry),
+    Request {
+        count: usize,
+        up_to_slot_number: Option<usize>,
     },
 }
 
-impl Codable for ServerReply {}
+impl Codable for ClientMessage {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ServerMessage {
+    NewEntry(ChatLogEntry),
+}
+
+impl Codable for ServerMessage {}

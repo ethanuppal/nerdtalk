@@ -117,10 +117,7 @@ impl App {
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),
-                Constraint::Length(input_height),
-            ])
+            .constraints([Constraint::Min(1), Constraint::Length(input_height)])
             .split(size);
 
         self.draw_messages_area(frame, chunks[0]);
