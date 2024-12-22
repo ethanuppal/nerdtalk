@@ -13,6 +13,27 @@ export class MessageLogStore {
 
   constructor() {
     this.runningLog = []
+    this.runningLog.push({
+      body: 'hello',
+      author: 'haadi',
+      timestamp: 'blah',
+    })
+    this.runningLog.push({
+      body: 'hello2',
+      author: 'haadi',
+      timestamp: 'blah',
+    })    
+    this.runningLog.push({
+      body: 'hello2',
+      author: 'haadi',
+      timestamp: 'blah',
+    })
+    this.runningLog.push({
+      body: 'hello',
+      author: 'ethan',
+      timestamp: 'blah',
+    })
+
     makeObservable(this, {
       runningLog: observable,
       appendMessage: action,
@@ -44,7 +65,7 @@ export class MessageLogStore {
       lastAuthor = message.author
     }
 
-    return messages;
+    return messages
   }
 }
 
