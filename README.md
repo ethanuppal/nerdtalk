@@ -21,7 +21,11 @@ chmod u+x ./gen_cert.sh \
 
 # in the current shell, run the client
 ./local_tui_client.sh
+
+# in yet another shell, run another client
+./local_tui_client.sh
 ```
+You can now talk to each other over the TUI interface!
 
 ## Running on nerdserver
 
