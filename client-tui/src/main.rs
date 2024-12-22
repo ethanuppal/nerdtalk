@@ -19,7 +19,7 @@ use ratatui::{
 };
 
 mod vim;
-use vim::{Mode, VimCmd};
+use vim::{Mode, VimCommand};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -184,10 +184,7 @@ impl App {
     ) {
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Min(1),
-                Constraint::Length(3), // space for mode indicator
-            ])
+            .constraints([Constraint::Min(1), Constraint::Length(5)])
             .split(area);
 
         let input_paragraph =
@@ -195,27 +192,15 @@ impl App {
                 .block(Block::default().borders(Borders::ALL).title(" Input "))
                 .wrap(Wrap { trim: false });
 
-        let mode_str = match self.mode {
-            Mode::Normal => Span::styled(
-                "N",
-                ratatui::style::Style::default()
-                    .fg(ratatui::style::Color::Blue),
-            ),
-            Mode::Insert => Span::styled(
-                "I",
-                ratatui::style::Style::default()
-                    .fg(ratatui::style::Color::Green),
-            ),
-        };
-
-        let mode_paragraph = Paragraph::new(mode_str)
+        let mode_span = self.mode_indicator_span();
+        let mode_paragraph = Paragraph::new(mode_span)
             .block(Block::default().borders(Borders::ALL));
 
         // Render widgets
         frame.render_widget(input_paragraph, input_chunks[0]);
         frame.render_widget(mode_paragraph, input_chunks[1]);
 
-        // Compute where the cursor should go in TUI coordinates
+        // Cursor positioning code remains the same…
         let line_index = if available_width_for_text > 0 {
             self.cursor_pos as u16 / available_width_for_text
         } else {
@@ -271,7 +256,7 @@ impl App {
         self.normal_mode_buffer.push(ch);
 
         // 2) Parse the entire buffer with VimCmd
-        let mut vim_cmd = VimCmd::new(&self.normal_mode_buffer);
+        let mut vim_cmd = VimCommand::new(&self.normal_mode_buffer);
         let commands = vim_cmd.parse();
 
         // 3) Apply the commands (if any)
@@ -299,6 +284,12 @@ impl App {
         match key_event.code {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
+            }
+            KeyCode::Left => {
+                self.cursor_pos = self.cursor_pos.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                self.cursor_pos = (self.cursor_pos + 1).min(self.input.len());
             }
             KeyCode::Enter => self.send_message(),
             KeyCode::Backspace => {
@@ -374,5 +365,32 @@ impl App {
             }
         }
         Ok(())
+    }
+    fn mode_indicator_span(&self) -> ratatui::text::Span {
+        use ratatui::{
+            style::{Color, Style},
+            text::Span,
+        };
+
+        match self.mode {
+            Mode::Normal => {
+                // If nothing is pending, just show “N”.
+                // Otherwise, show up to 4 typed chars, padded on the right if shorter.
+                if self.normal_mode_buffer.is_empty() {
+                    Span::styled(" N ", Style::default().fg(Color::Blue))
+                } else {
+                    // Trim to 4 chars if user typed more
+                    let display_str = &self.normal_mode_buffer
+                        [..self.normal_mode_buffer.len().min(4)];
+                    // Pad to length=4 so it occupies a consistent space
+                    let padded = format!("{:<4}", display_str);
+
+                    Span::styled(padded, Style::default().fg(Color::Blue))
+                }
+            }
+            Mode::Insert => {
+                Span::styled(" I ", Style::default().fg(Color::Green))
+            }
+        }
     }
 }
