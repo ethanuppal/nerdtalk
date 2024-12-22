@@ -19,7 +19,10 @@ use ratatui::{
 };
 
 mod vim;
-use tokio::sync::{mpsc, RwLock};
+use tokio::{
+    sync::{mpsc, RwLock},
+    time::Instant,
+};
 use vim::{Mode, VimCommand};
 
 /// Indicates which part of the UI is currently in “focus.”
@@ -109,13 +112,17 @@ impl App {
         terminal: &mut DefaultTerminal,
         messages: Arc<RwLock<Vec<String>>>,
     ) -> Result<(), io::Error> {
-        let mut interval = tokio::time::interval(time::Duration::from_millis(20));
+        let mut interval =
+            tokio::time::interval(time::Duration::from_millis(20));
         while !self.exit {
+            let start2 = Instant::now();
             {
+                let start = Instant::now();
                 let messages = messages.read().await;
                 let messages_ref = &*messages;
                 terminal.draw(|frame| self.draw(messages_ref, frame))?;
                 self.update_cursor_shape(terminal)?;
+                let start3 = Instant::now();
                 self.handle_events(messages_ref)?;
                 drop(messages);
             }
@@ -136,8 +143,7 @@ impl App {
         let line_count = if self.input.is_empty() {
             1
         } else {
-            (self.input.len() as u16 + available_width_for_text - 1)
-                / available_width_for_text
+            (self.input.len() as u16).div_ceil(available_width_for_text)
         };
 
         // We add 2 for the borders. line_count is the number of wrapped lines.
@@ -288,14 +294,18 @@ impl App {
     }
 
     fn handle_events(&mut self, messages: &[String]) -> Result<(), io::Error> {
-        match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(messages, key_event);
+        if event::poll(time::Duration::from_millis(5))? {
+            match event::read()? {
+                Event::Key(key_event)
+                    if key_event.kind == KeyEventKind::Press =>
+                {
+                    self.handle_key_event(messages, key_event);
+                }
+                Event::Mouse(mouse_event) => {
+                    self.handle_mouse_event(messages, mouse_event);
+                }
+                _ => {}
             }
-            Event::Mouse(mouse_event) => {
-                self.handle_mouse_event(messages, mouse_event);
-            }
-            _ => {}
         }
         Ok(())
     }
