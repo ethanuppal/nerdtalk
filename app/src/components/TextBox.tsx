@@ -1,20 +1,20 @@
-interface TextBoxParams {
-  messageBody: string
-  timestamp: string
-  slotnum?: number
+export enum TextBoxType {
+  Authored,
+  Trailing,
 }
 
-export default function TextBox(props: TextBoxParams) {
-  const { messageBody, timestamp } = props
+export interface TextBoxProps {
+  type: TextBoxType
+  body: string
+  timestamp: string
+  author: string
+}
 
-  return (
-    <div className="w-fit rounded border-none bg-primary-color px-2 py-2">
-      <p>
-        {messageBody} {timestamp}
-      </p>
+export default function TextBox(props: TextBoxProps) {
+  const { type, body, timestamp, author } = props
 
-      {/* Bro needs to float top right */}
-      {/* <p>{timestamp}</p> */}
-    </div>
-  )
+  return <div className="className=py-2 text-white hover:bg-gray-600">
+    <p><span className="font-bold">{author}</span> <time className="text-gray-400 text-xs">{timestamp}</time> </p>
+    <p>{body}</p>
+  </div>
 }
