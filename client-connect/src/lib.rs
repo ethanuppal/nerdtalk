@@ -5,7 +5,6 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::{net::TcpStream, sync::mpsc, task::JoinHandle};
 use tokio_rustls::rustls as tls;
 use tokio_tungstenite::{
-    connect_async_tls_with_config,
     tungstenite::{self, client::IntoClientRequest, protocol::Message},
     Connector, MaybeTlsStream, WebSocketStream,
 };
@@ -66,7 +65,7 @@ pub async fn open_websocket<R: IntoClientRequest + Unpin>(
 
     let tls_connector = Connector::Rustls(Arc::new(tls_client_config));
 
-    let (websocket, _) = connect_async_tls_with_config(
+    let (websocket, _) = tokio_tungstenite::connect_async_tls_with_config(
         server_address,
         Some(Default::default()),
         false,
@@ -207,11 +206,22 @@ impl ClientConnection {
     }
 
     // TODO: figure out how to directly expose channels someho
-    pub fn send(&mut self, message: comms::ClientMessage) {
+    pub fn send(&self, message: comms::ClientMessage) {
         let _ = self
             .channel_with_actor
             .tx
             .send(ActorWrapper::Wrapped(message));
+    }
+
+    pub async fn recv(&mut self) -> Option<comms::ServerMessage> {
+        self.channel_with_actor
+            .rx
+            .recv()
+            .await
+            .map(|wrapped| match wrapped {
+                ActorWrapper::Wrapped(message) => message.expect("todo"),
+                ActorWrapper::Close => unreachable!(),
+            })
     }
 }
 

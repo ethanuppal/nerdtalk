@@ -20,6 +20,7 @@ pub trait Codable {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppendChatEntry {
+    pub username: String,
     pub content: String,
 }
 
