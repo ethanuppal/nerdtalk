@@ -23,8 +23,9 @@ Edit/Insert:
 - y
 - r
 
+Text objects (iw, etc.)
+
 ## In-Progress/Future
-- Text objects (iw, etc.)
 - visual mode
 - f/F/t/T
 - / for search (waiting on API)

@@ -8,9 +8,10 @@ use crate::Focus;
 pub enum Mode {
     Insert,
     Normal,
+    Visual,
 }
 
-/// A [`Motion`] indicates movement over some text, e.g. `w`, `b`, `h`, etc.
+/// A [Motion] indicates movement over some text, e.g. w, b, h, etc.
 #[derive(Clone, Debug)]
 pub enum Motion {
     Left,
@@ -26,7 +27,7 @@ pub enum Motion {
     EndFile,
 }
 
-/// An [`Edit`] indicates a command which edits the text or sets up for an edit.
+/// An [Edit] indicates a command which edits the text or sets up for an edit.
 #[derive(Clone, Debug)]
 pub enum Edit {
     Insert,
@@ -38,7 +39,7 @@ pub enum Edit {
     Paste,
 }
 
-/// A Vim "Noun". This is the object following a verb (e.g. `dw`, `ciw`).
+/// A Vim "Noun". This is the object following a verb (e.g. dw, ciw).
 #[derive(Clone, Debug)]
 pub enum Noun {
     Motion(Motion),
@@ -54,14 +55,14 @@ pub enum Noun {
     Pending, // temporary state for initialization
 }
 
-/// Single-keystroke commands, e.g. `i`, `x`, `w`, etc.
+/// Single-keystroke commands, e.g. i, x, w, etc.
 #[derive(Clone, Debug)]
 pub enum SingleCommand {
     Edit(Edit),
     Motion(Motion),
 }
 
-/// Our "operators" can embed a `Noun` (e.g., `delete(word)`).
+/// Our "operators" can embed a Noun (e.g., delete(word)).
 #[derive(Clone, Debug)]
 pub enum MultiCommand {
     Delete(Noun),
@@ -71,17 +72,17 @@ pub enum MultiCommand {
     Yank(Noun),
 }
 
-/// A high-level [`Command`] is either:
-///  - A single-key command (`SingleCommand`)
-///  - Or an operator + object (`MultiCommand`).
+/// A high-level [Command] is either:
+///  - A single-key command (SingleCommand)
+///  - Or an operator + object (MultiCommand).
 #[derive(Clone, Debug)]
 pub enum Command {
     SingleCommand(SingleCommand),
     MultiCommand(MultiCommand),
 }
 
-/// Simple [`VimCommand`] parser. Tracks an optional (pending) operator (e.g.
-/// `d`, `c`, `y`).
+/// Simple [VimCommand] parser. Tracks an optional (pending) operator (e.g.
+/// d, c, y).
 pub struct VimCommand<'a> {
     input: &'a str,
     x_pos: usize,
@@ -111,7 +112,7 @@ impl Iterator for VimCommand<'_> {
 }
 
 impl VimCommand<'_> {
-    /// Parse the entire input buffer into zero or more [`Command`]s.
+    /// Parse the entire input buffer into zero or more [Command]s.
     pub fn parse(&mut self) -> Vec<Command> {
         let mut commands = Vec::new();
 
@@ -239,7 +240,7 @@ impl VimCommand<'_> {
                         ));
                     }
 
-                    // `r` => next char is the replacement (like `rX`)
+                    // r => next char is the replacement (like rX)
                     'r' | 'R' => {
                         self.operator = Some(MultiCommand::Replace('\0'));
                     }
@@ -256,7 +257,7 @@ impl VimCommand<'_> {
         self.operator.is_some()
     }
 
-    /// Attempt to parse a 1- or 2-char Noun, given the first char `ch`.
+    /// Attempt to parse a 1- or 2-char Noun, given the first char ch.
     fn parse_noun(&mut self, ch: char) -> Option<Noun> {
         match ch {
             // Single-char motions:
@@ -292,8 +293,8 @@ impl VimCommand<'_> {
         }
     }
 
-    /// Applies a list of [`Command`]s to the current editor state.
-    /// If `focus == Focus::Messages`, we ignore editing commands.
+    /// Applies a list of [Command]s to the current editor state.
+    /// If focus == Focus::Messages, we ignore editing commands.
     pub fn apply_cmds(
         &mut self,
         mode: &mut Mode,

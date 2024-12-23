@@ -1,6 +1,6 @@
 use std::{env, io, sync::Arc, time};
 
-use copypasta::ClipboardContext;
+use copypasta::{ClipboardContext, ClipboardProvider};
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
     event::{
@@ -82,6 +82,7 @@ pub struct App {
     undo_stack: Vec<String>,
     focus: Focus,
     tx: mpsc::UnboundedSender<comms::ClientMessage>,
+    visual_anchor: Option<usize>,
 }
 
 impl App {
@@ -101,6 +102,7 @@ impl App {
             undo_stack: Vec::new(),
             focus: Focus::Input,
             tx,
+            visual_anchor: None,
         }
     }
 
@@ -252,13 +254,23 @@ impl App {
         area: Rect,
         available_width_for_text: u16,
     ) {
+        let displayed_text = if let Mode::Visual = self.mode {
+            render_input_with_selection(
+                &self.input,
+                self.visual_anchor,
+                self.cursor_pos
+            )
+        } else {
+            Text::from(Span::raw(&self.input))
+        };
+
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(1), Constraint::Length(5)])
             .split(area);
 
         let input_paragraph =
-            Paragraph::new(Text::from(Span::raw(&self.input)))
+            Paragraph::new(displayed_text)
                 .block(Block::default().borders(Borders::ALL).title(" Input "))
                 .wrap(Wrap { trim: false });
 
@@ -312,6 +324,9 @@ impl App {
             Mode::Insert => {
                 self.handle_key_event_insert_mode(messages, key_event)
             }
+            Mode::Visual => {
+                self.handle_key_event_visual_mode(messages, key_event)
+            }
         }
     }
 
@@ -344,11 +359,20 @@ impl App {
                     self.focus = Focus::Messages;
                 }
             }
+            KeyCode::Char('v') => {
+                self.mode = Mode::Visual;
+                // Mark where we began our visual selection
+                self.visual_anchor = Some(self.cursor_pos);
+                // Clear out any leftover commands
+                self.normal_mode_buffer.clear();
+                return;
+            }
             KeyCode::Char('q') => {
                 self.exit();
                 return;
             }
-            // Use the Vim engine for the rest
+
+            // Use the Vim engine for the rest:
             KeyCode::Char(c) => {
                 self.normal_mode_buffer.push(c);
             }
@@ -377,7 +401,7 @@ impl App {
         }
     }
 
-    /// Insert mode: typed characters are inserted into `self.input`.
+    /// Insert mode: typed characters are inserted into self.input.
     fn handle_key_event_insert_mode(
         &mut self,
         messages: &[String],
@@ -404,6 +428,47 @@ impl App {
                 self.input.insert(self.cursor_pos, c);
                 self.cursor_pos += 1;
             }
+            _ => {}
+        }
+    }
+
+    fn handle_key_event_visual_mode(
+        &mut self,
+        messages: &[String],
+        key_event: KeyEvent,
+    ) {
+        match key_event.code {
+            KeyCode::Esc | KeyCode::Char('v') => {
+                self.mode = Mode::Normal;
+                self.visual_anchor = None;
+            }
+            // Motions:
+            KeyCode::Left => {
+                self.cursor_pos = self.cursor_pos.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                self.cursor_pos = (self.cursor_pos + 1).min(self.input.len());
+            }
+            KeyCode::Char('h') => {
+                self.cursor_pos = self.cursor_pos.saturating_sub(1);
+            }
+            KeyCode::Char('l') => {
+                self.cursor_pos = (self.cursor_pos + 1).min(self.input.len());
+            }
+
+            KeyCode::Char('y') => {
+                self.yank_visual_selection();
+                self.mode = Mode::Normal;
+                self.visual_anchor = None;
+            }
+
+            KeyCode::Char('d') => {
+                self.delete_visual_selection();
+                self.mode = Mode::Normal;
+                self.visual_anchor = None;
+            }
+
+            // Add more if you wish
             _ => {}
         }
     }
@@ -453,15 +518,44 @@ impl App {
 
     fn scroll_up(&mut self, lines: u16) {
         self.scroll_offset = self.scroll_offset.saturating_sub(lines);
-        if self.messages_cursor as u16 >= self.scroll_offset {
-            // keep the messages_cursor in sync if needed
-        }
     }
 
     fn scroll_down(&mut self, messages: &[String], lines: u16) {
         let total_lines = messages.len() as u16;
         self.scroll_offset =
             (self.scroll_offset + lines).min(total_lines.saturating_sub(1));
+    }
+
+    fn yank_visual_selection(&mut self) {
+        if let Some(anchor) = self.visual_anchor {
+            let (start, end) = if anchor <= self.cursor_pos {
+                (anchor, self.cursor_pos)
+            } else {
+                (self.cursor_pos, anchor)
+            };
+            if start < end && end <= self.input.len() {
+                let selected = &self.input[start..end];
+                let _ = self.clipboard.set_contents(selected.to_string());
+            }
+        }
+    }
+
+    fn delete_visual_selection(&mut self) {
+        if let Some(anchor) = self.visual_anchor {
+            let (start, end) = if anchor <= self.cursor_pos {
+                (anchor, self.cursor_pos)
+            } else {
+                (self.cursor_pos, anchor)
+            };
+            if start < end && end <= self.input.len() {
+                // Yank first, if you want that behavior:
+                let selected = &self.input[start..end];
+                let _ = self.clipboard.set_contents(selected.to_string());
+
+                self.input.drain(start..end);
+                self.cursor_pos = start;
+            }
+        }
     }
 
     fn update_cursor_shape(
@@ -480,6 +574,12 @@ impl App {
                 terminal
                     .backend_mut()
                     .execute(SetCursorStyle::BlinkingBar)?;
+            }
+            Mode::Visual => {
+                terminal.backend_mut().execute(DisableBlinking)?;
+                terminal
+                    .backend_mut()
+                    .execute(SetCursorStyle::SteadyUnderScore)?;
             }
         }
         Ok(())
@@ -508,6 +608,43 @@ impl App {
                 " I ".to_string(),
                 Style::default().fg(Color::Green),
             ),
+            Mode::Visual => Span::styled(
+                " V ".to_string(),
+                Style::default().fg(Color::Magenta),
+            ),
         }
     }
+}
+
+/// A small helper function to render the input text with a highlighted region
+/// (for Visual mode) between visual_anchor and cursor_pos.
+fn render_input_with_selection(
+    text: &str,
+    visual_anchor: Option<usize>,
+    cursor_pos: usize
+) -> Text<'_> {
+    if visual_anchor.is_none() {
+        return Text::from(Span::raw(text));
+    }
+    let anchor = visual_anchor.unwrap();
+    let (start, end) = if anchor <= cursor_pos {
+        (anchor, cursor_pos)
+    } else {
+        (cursor_pos, anchor)
+    };
+
+    // Safety checks
+    if start >= end || end > text.len() {
+        return Text::from(Span::raw(text));
+    }
+
+    let before = &text[..start];
+    let selected = &text[start..end];
+    let after = &text[end..];
+
+    Text::from(Line::from(vec![
+        Span::raw(before),
+        Span::styled(selected, Style::default().bg(Color::LightBlue).fg(Color::Black)),
+        Span::raw(after),
+    ]))
 }
