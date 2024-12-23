@@ -1,6 +1,7 @@
-use crate::Focus;
 use copypasta::ClipboardProvider;
 use regex::Regex;
+
+use crate::Focus;
 
 /// Different Vim Modes
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub enum Motion {
     ForwardBigWord,
     BackwardWord,
     BackwardBigWord,
+    EndWord,
     StartFile,
     EndFile,
 }
@@ -144,6 +146,11 @@ impl VimCommand<'_> {
                             commands.push(replace_cmd);
                             self.operator = None;
                         }
+                        MultiCommand::Delete(_) | MultiCommand::Change(_) => {
+                            self.operator = Some(MultiCommand::Delete(N));
+
+
+                        }
                         _ => self.operator = None,
                     }
                 }
@@ -200,6 +207,9 @@ impl VimCommand<'_> {
                     )),
                     'D' => commands.push(Command::SingleCommand(
                         SingleCommand::Edit(Edit::DeleteEOL),
+                    )),
+                    'e' => commands.push(Command::SingleCommand(
+                        SingleCommand::Motion(Motion::EndWord),
                     )),
 
                     // Operators that require a Noun
@@ -347,8 +357,8 @@ impl VimCommand<'_> {
                     SingleCommand::Motion(motion) => match motion {
                         Motion::Left => {
                             if *focus == Focus::Messages {
-                                // Not implemented. Could do horizontal scroll in
-                                // messages
+                                // Not implemented. Could do horizontal scroll
+                                // in messages
                             } else if *cursor_pos > 0 {
                                 *cursor_pos -= 1;
                             }
@@ -401,6 +411,9 @@ impl VimCommand<'_> {
                             } else {
                                 *cursor_pos = text.len();
                             }
+                        }
+                        Motion::EndWord => {
+                            *cursor_pos = find_word_end(text, *cursor_pos);
                         }
                     },
                 },
@@ -480,10 +493,24 @@ fn delete_helper(
             }
         }
         Noun::InnerWord => {
-            todo!()
+            let start_pos = find_prev_word_boundary(text, *cursor_pos);
+            let end_pos = find_next_word_boundary(text, *cursor_pos);
+            if start_pos < *cursor_pos && end_pos > *cursor_pos {
+                let removed =
+                    text.drain(start_pos..end_pos).collect::<String>();
+                let _ = clipboard.set_contents(removed);
+                *cursor_pos = start_pos;
+            }
         }
         Noun::InnerBigWord => {
-            todo!()
+            let start_pos = find_prev_big_word_boundary(text, *cursor_pos);
+            let end_pos = find_next_big_word_boundary(text, *cursor_pos);
+            if start_pos < *cursor_pos && end_pos > *cursor_pos {
+                let removed =
+                    text.drain(start_pos..end_pos).collect::<String>();
+                let _ = clipboard.set_contents(removed);
+                *cursor_pos = start_pos;
+            }
         }
         _ => {}
     }
@@ -560,18 +587,40 @@ fn word_boundary(
     }
 }
 
-fn find_next_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s]+|[\p{P}]", true)
+fn find_next_word_boundary(text: &str, start_index: usize) -> usize {
+    word_boundary(text, start_index, r"[\s]+|[\p{P}]", true)
 }
 
-fn find_next_big_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s]+", true)
+fn find_next_big_word_boundary(text: &str, start_index: usize) -> usize {
+    word_boundary(text, start_index, r"[\s]+", true)
 }
 
-fn find_prev_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s]+|[\p{P}]", false)
+fn find_prev_word_boundary(text: &str, start_index: usize) -> usize {
+    word_boundary(text, start_index, r"[\s]+|[\p{P}]", false)
 }
 
-fn find_prev_big_word_boundary(text: &str, start: usize) -> usize {
-    word_boundary(text, start, r"[\s]+", false)
+fn find_prev_big_word_boundary(text: &str, start_index: usize) -> usize {
+    word_boundary(text, start_index, r"[\s]+", false)
+}
+
+fn find_word_end(text: &str, start_index: usize) -> usize {
+    let remainder = &text[start_index..];
+    let regex = Regex::new(r"[\s]+|[\p{P}]").unwrap();
+    let matches: Vec<_> = regex.find_iter(remainder).collect();
+
+    if let Some(mat) = matches.first() {
+        let mut ms = mat.start();
+        if mat.as_str().chars().all(char::is_whitespace) {
+            ms = mat.end();
+        }
+        if start_index + ms - 2 == start_index {
+            // let (new_index, at_end) = (1 as usize).overflowing_add(2);
+
+            start_index + matches.get(1).unwrap_or(mat).end() - 2
+        } else {
+            start_index + ms - 2
+        }
+    } else {
+        text.len()
+    }
 }
