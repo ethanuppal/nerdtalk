@@ -1,15 +1,21 @@
+import { AuthorRef, AuthorStore } from '@state/authorStore'
 import { format, isToday, isYesterday } from 'date-fns'
+import { observer } from 'mobx-react-lite'
 
 export enum TextBoxType {
   Authored,
   Trailing,
 }
 
-export interface TextBoxProps {
+export interface TextBoxInfo {
   type: TextBoxType
   body: string
   timestamp: Date
-  author: string
+  authorRef: AuthorRef,
+}
+
+export interface TextBoxProps extends TextBoxInfo {
+  authorStore: AuthorStore
 }
 
 function formatMessageTrailingDate(date: Date): string {
@@ -30,24 +36,20 @@ function formatMessageAuthorDate(date: Date): string {
   return `${day_str} at ${formatMessageTrailingDate(date)}`
 }
 
-export default function TextBox(props: TextBoxProps) {
-  const { type, body, timestamp, author } = props
+const TextBox = observer((props: TextBoxProps) => {
+  const { type, body, timestamp, authorRef, authorStore } = props
+  const author = authorStore.authors[authorRef]
 
   if (type == TextBoxType.Authored)
     return (
       <div className="flex gap-2 px-2 text-white hover:bg-gray-600">
-        <div className="px-1 grid place-content-center">
-          <img
-            src="/image.png"
-            className={
-              'w-9 rounded-full' + (author != 'haadi' ? ' invert' : '')
-            }
-          />
+        <div className="grid place-content-center px-1">
+          <img src={author.avatarURL} className="w-9 rounded-full" />
         </div>
 
         <div>
           <p>
-            <span className="mr-1 font-bold">{author}</span>{' '}
+            <span className="mr-1 font-bold">{author.name}</span>{' '}
             <time className="text-xxs text-gray-400">
               {formatMessageAuthorDate(timestamp)}
             </time>{' '}
@@ -69,4 +71,6 @@ export default function TextBox(props: TextBoxProps) {
         <p className="!text-white">{body}</p>
       </div>
     )
-}
+})
+
+export default TextBox
