@@ -30,7 +30,7 @@ export class MessageLogStore {
     })
     this.runningLog.push({
       body: 'hello',
-      author: 'ethan',
+      author: 'haadi2',
       timestamp: new Date(),
     })
 
