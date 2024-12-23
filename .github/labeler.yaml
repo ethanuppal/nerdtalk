@@ -9,6 +9,15 @@
 "Code: Protocol":
   - changed-files:
       - any-glob-to-any-file: "comms/**"
+      - any-glob-to-any-file: "docs/protocol*.md"
+
+"Code: Chat":
+  - changed-files:
+      - any-glob-to-any-file: "chat/**"
+
+"Code: TUI":
+  - changed-files:
+      - any-glob-to-any-file: "client-tui/**"
 
 "Code: Web App":
   - changed-files:

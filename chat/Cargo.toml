@@ -1,5 +1,5 @@
 [package]
-name = "comms"
+name = "chat"
 version.workspace = true
 description.workspace = true
 authors.workspace = true
@@ -7,6 +7,5 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-chat.workspace = true
+chrono.workspace = true
 serde.workspace = true
-bincode.workspace = true
