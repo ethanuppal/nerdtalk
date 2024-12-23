@@ -15,7 +15,7 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
     messageLogStore.appendMessage({
       body: userInput,
       author: 'HOST',
-      timestamp: 'default',
+      timestamp: new Date(),
     })
 
     setUserInput('')
