@@ -146,10 +146,17 @@ impl VimCommand<'_> {
                             commands.push(replace_cmd);
                             self.operator = None;
                         }
-                        MultiCommand::Delete(_) | MultiCommand::Change(_) => {
-                            self.operator = Some(MultiCommand::Delete(N));
-
-
+                        MultiCommand::Delete(_) => {
+                            self.operator =
+                                Some(MultiCommand::Delete(Noun::Pending));
+                        }
+                        MultiCommand::Change(_) => {
+                            self.operator =
+                                Some(MultiCommand::Change(Noun::Pending));
+                        }
+                        MultiCommand::Yank(_) => {
+                            self.operator =
+                                Some(MultiCommand::Yank(Noun::Pending));
                         }
                         _ => self.operator = None,
                     }
@@ -533,12 +540,52 @@ fn yank_helper(
     clipboard: &mut copypasta::ClipboardContext,
     noun: &Noun,
 ) {
-    if let Noun::Motion(Motion::ForwardWord) = noun {
-        let end_pos = find_next_word_boundary(text, *cursor_pos);
-        if end_pos > *cursor_pos {
-            let selection = &text[*cursor_pos..end_pos];
-            let _ = clipboard.set_contents(selection.to_string());
+    match noun {
+        Noun::Motion(Motion::ForwardWord) => {
+            let end_pos = find_next_word_boundary(text, *cursor_pos);
+            if end_pos > *cursor_pos {
+                let selection = &text[*cursor_pos..end_pos];
+                let _ = clipboard.set_contents(selection.to_string());
+            }
         }
+        Noun::Motion(Motion::ForwardBigWord) => {
+            let end_pos = find_next_big_word_boundary(text, *cursor_pos);
+            if end_pos > *cursor_pos {
+                let selection = &text[*cursor_pos..end_pos];
+                let _ = clipboard.set_contents(selection.to_string());
+            }
+        }
+        Noun::Motion(Motion::BackwardWord) => {
+            let start_pos = find_prev_word_boundary(text, *cursor_pos);
+            if start_pos < *cursor_pos {
+                let selection = &text[start_pos..*cursor_pos];
+                let _ = clipboard.set_contents(selection.to_string());
+            }
+        }
+        Noun::Motion(Motion::BackwardBigWord) => {
+            let start_pos = find_prev_big_word_boundary(text, *cursor_pos);
+            if start_pos < *cursor_pos {
+                let selection = &text[start_pos..*cursor_pos];
+                let _ = clipboard.set_contents(selection.to_string());
+            }
+        }
+        Noun::InnerWord => {
+            let start_pos = find_prev_word_boundary(text, *cursor_pos);
+            let end_pos = find_next_word_boundary(text, *cursor_pos);
+            if start_pos < *cursor_pos && end_pos > *cursor_pos {
+                let selection = &text[start_pos..end_pos];
+                let _ = clipboard.set_contents(selection.to_string());
+            }
+        }
+        Noun::InnerBigWord => {
+            let start_pos = find_prev_big_word_boundary(text, *cursor_pos);
+            let end_pos = find_next_big_word_boundary(text, *cursor_pos);
+            if start_pos < *cursor_pos && end_pos > *cursor_pos {
+                let selection = &text[start_pos..end_pos];
+                let _ = clipboard.set_contents(selection.to_string());
+            }
+        }
+        _ => {}
     }
 }
 
