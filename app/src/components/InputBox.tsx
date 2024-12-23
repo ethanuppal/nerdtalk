@@ -12,6 +12,10 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
   const handleOnSubmit = (e: FormEvent) => {
     e.preventDefault()
 
+    if (userInput.length == 0) {
+      return
+    }
+
     messageLogStore.appendMessage({
       body: userInput,
       author: 'HOST',
