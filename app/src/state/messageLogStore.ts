@@ -1,5 +1,5 @@
 import { makeObservable, observable, action, computed } from 'mobx'
-import { TextBoxInfo, TextBoxProps, TextBoxType } from '@components/TextBox'
+import { TextBoxInfo, TextBoxType } from '@components/TextBox'
 import { AuthorRef } from '@state/authorStore'
 
 export interface Message {
