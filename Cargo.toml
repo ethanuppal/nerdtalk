@@ -1,5 +1,12 @@
 [workspace]
-members = ["app/src-tauri", "chat", "client-connect", "client-tui", "comms", "server"]
+members = [
+    "client-tauri/src-tauri",
+    "chat",
+    "client-connect",
+    "client-tui",
+    "comms",
+    "server",
+]
 resolver = "2"
 
 [workspace.package]
@@ -55,3 +62,4 @@ chrono = { version = "0.4.39", features = ["serde", "clock"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-build = { version = "2", features = [] }
+
