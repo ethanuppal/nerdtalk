@@ -3,7 +3,7 @@ import { TextBoxProps, TextBoxType } from '@components/TextBox'
 
 export interface Message {
   body: string
-  timestamp: string
+  timestamp: Date
   author: string
   slotnum?: number
 }
@@ -16,22 +16,22 @@ export class MessageLogStore {
     this.runningLog.push({
       body: 'hello',
       author: 'haadi',
-      timestamp: 'blah',
+      timestamp: new Date()
     })
     this.runningLog.push({
       body: 'hello2',
       author: 'haadi',
-      timestamp: 'blah',
+      timestamp: new Date(),
     })    
     this.runningLog.push({
       body: 'hello2',
       author: 'haadi',
-      timestamp: 'blah',
+      timestamp: new Date(),
     })
     this.runningLog.push({
       body: 'hello',
       author: 'ethan',
-      timestamp: 'blah',
+      timestamp: new Date(),
     })
 
     makeObservable(this, {
