@@ -60,7 +60,7 @@ const TextBox = observer((props: TextBoxProps) => {
     )
   else
     return (
-      <div className="flex gap-2 px-2 text-secondary-color hover:bg-gray-600 hover:text-gray-400">
+      <div className="flex gap-2 px-2 text-primary-color hover:bg-gray-600 hover:text-gray-400">
         <div className="mx-1 grid h-5 w-9 place-content-center">
           <div className="h-fit text-center">
             <time className="box-content block text-[0.5rem] leading-[0.5rem]">
