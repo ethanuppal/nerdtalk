@@ -73,9 +73,7 @@ pub struct App {
     input: String,
     editing_context: vim::EditingContext,
     exit: bool,
-    scroll_offset: u16,
     messages_cursor: usize,
-    cursor_pos: usize,
     command_buffer: vim::CommandBuffer,
     clipboard: ClipboardContext,
     tx: mpsc::UnboundedSender<comms::ClientMessage>,
@@ -87,9 +85,7 @@ impl App {
             input: String::new(),
             editing_context: vim::EditingContext::new(),
             exit: false,
-            scroll_offset: 0,
             messages_cursor: 0,
-            cursor_pos: 0,
             command_buffer: vim::CommandBuffer::new(),
             clipboard: ClipboardContext::new().unwrap_or_else(|_| {
                 eprintln!("Failed to initialize clipboard context.");
@@ -168,14 +164,15 @@ impl App {
         }
 
         let max_scroll = total_lines.saturating_sub(inner_height);
-        self.scroll_offset = self.scroll_offset.min(max_scroll);
+        self.editing_context.scroll_offset =
+            self.editing_context.scroll_offset.min(max_scroll);
 
-        if (self.messages_cursor as u16) < self.scroll_offset {
-            self.scroll_offset = self.messages_cursor as u16;
+        if (self.messages_cursor as u16) < self.editing_context.scroll_offset {
+            self.editing_context.scroll_offset = self.messages_cursor as u16;
         } else if (self.messages_cursor as u16)
-            >= (self.scroll_offset + inner_height)
+            >= (self.editing_context.scroll_offset + inner_height)
         {
-            self.scroll_offset =
+            self.editing_context.scroll_offset =
                 (self.messages_cursor as u16).saturating_sub(inner_height - 1);
         }
 
@@ -187,7 +184,7 @@ impl App {
                     .border_set(border::THICK),
             )
             .wrap(Wrap { trim: true })
-            .scroll((self.scroll_offset, 0));
+            .scroll((self.editing_context.scroll_offset, 0));
 
         let message_chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -202,7 +199,8 @@ impl App {
             let thumb_pos = if max_scroll == 0 {
                 0
             } else {
-                self.scroll_offset * scrollbar_inner_height / max_scroll
+                self.editing_context.scroll_offset * scrollbar_inner_height
+                    / max_scroll
             };
 
             let mut scrollbar_text = Vec::new();
@@ -234,7 +232,7 @@ impl App {
 
         if self.editing_context.focus == Focus::Messages {
             let relative_y = (self.messages_cursor as u16)
-                .saturating_sub(self.scroll_offset);
+                .saturating_sub(self.editing_context.scroll_offset);
             let cursor_x = message_chunks[0].x + 1;
             let cursor_y = message_chunks[0].y + 1 + relative_y;
             frame.set_cursor_position((cursor_x, cursor_y));
@@ -266,12 +264,14 @@ impl App {
 
         if self.editing_context.focus == Focus::Input {
             let line_index = if available_width_for_text > 0 {
-                self.cursor_pos as u16 / available_width_for_text
+                self.editing_context.cursor_pos as u16
+                    / available_width_for_text
             } else {
                 0
             };
             let col_index = if available_width_for_text > 0 {
-                self.cursor_pos as u16 % available_width_for_text
+                self.editing_context.cursor_pos as u16
+                    % available_width_for_text
             } else {
                 0
             };
@@ -376,21 +376,23 @@ impl App {
                 self.editing_context.mode = vim::Mode::Normal;
             }
             KeyCode::Left => {
-                self.cursor_pos = self.cursor_pos.saturating_sub(1);
+                self.editing_context.cursor_pos =
+                    self.editing_context.cursor_pos.saturating_sub(1);
             }
             KeyCode::Right => {
-                self.cursor_pos = (self.cursor_pos + 1).min(self.input.len());
+                self.editing_context.cursor_pos =
+                    (self.editing_context.cursor_pos + 1).min(self.input.len());
             }
             KeyCode::Enter => self.send_message(messages),
             KeyCode::Backspace => {
-                if self.cursor_pos > 0 {
-                    self.cursor_pos -= 1;
-                    self.input.remove(self.cursor_pos);
+                if self.editing_context.cursor_pos > 0 {
+                    self.editing_context.cursor_pos -= 1;
+                    self.input.remove(self.editing_context.cursor_pos);
                 }
             }
             KeyCode::Char(c) => {
-                self.input.insert(self.cursor_pos, c);
-                self.cursor_pos += 1;
+                self.input.insert(self.editing_context.cursor_pos, c);
+                self.editing_context.cursor_pos += 1;
             }
             _ => {}
         }
@@ -427,7 +429,7 @@ impl App {
                 .expect("channel closed on server");
         }
         self.input.clear();
-        self.cursor_pos = 0;
+        self.editing_context.cursor_pos = 0;
         self.scroll_to_bottom(messages);
     }
 
@@ -436,20 +438,22 @@ impl App {
             self.messages_cursor = messages.len() - 1;
         }
         let total_lines = messages.len() as u16;
-        self.scroll_offset = total_lines.saturating_sub(1);
+        self.editing_context.scroll_offset = total_lines.saturating_sub(1);
     }
 
     fn scroll_up(&mut self, lines: u16) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(lines);
-        if self.messages_cursor as u16 >= self.scroll_offset {
+        self.editing_context.scroll_offset =
+            self.editing_context.scroll_offset.saturating_sub(lines);
+        if self.messages_cursor as u16 >= self.editing_context.scroll_offset {
             // keep the messages_cursor in sync if needed
         }
     }
 
     fn scroll_down(&mut self, messages: &[String], lines: u16) {
         let total_lines = messages.len() as u16;
-        self.scroll_offset =
-            (self.scroll_offset + lines).min(total_lines.saturating_sub(1));
+        self.editing_context.scroll_offset =
+            (self.editing_context.scroll_offset + lines)
+                .min(total_lines.saturating_sub(1));
     }
 
     fn update_cursor_shape(

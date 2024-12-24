@@ -116,6 +116,10 @@ impl CommandBuffer {
     }
 
     pub fn parse(&mut self) -> Option<Command> {
+        if self.is_empty() {
+            return None;
+        }
+
         self.chars.make_contiguous();
 
         if let Some(single_command) = self.parse_single_command() {
@@ -178,7 +182,7 @@ impl CommandBuffer {
     }
 
     fn peek_noun(&self) -> Option<(Noun, usize)> {
-        match self.peek(0)? {
+        match self.peek(1)? {
             // Single-char motions:
             'w' => Some((Noun::Motion(Motion::ForwardWord), 1)),
             'W' => Some((Noun::Motion(Motion::ForwardBigWord), 1)),
@@ -190,7 +194,7 @@ impl CommandBuffer {
             'k' => Some((Noun::Motion(Motion::Up), 1)),
 
             // Possibly "iw", "iW", etc.
-            'i' => match self.peek(1)? {
+            'i' => match self.peek(2)? {
                 'w' => Some((Noun::InnerWord, 2)),
                 'W' => Some((Noun::InnerBigWord, 2)),
                 's' => Some((Noun::Sentence, 2)),
@@ -208,11 +212,13 @@ impl CommandBuffer {
     }
 
     fn current(&self) -> char {
-        self.chars.front().cloned().unwrap()
+        self.peek(0).unwrap()
     }
 
+    /// The `ahead`th zero-indexed character from the current position.
+    /// `self.current()` is equivalent to `self.peek(0).unwrap()`.
     fn peek(&self, ahead: usize) -> Option<char> {
-        self.chars.get(1 + ahead).cloned()
+        self.chars.get(ahead).cloned()
     }
 
     fn advance(&mut self, count: usize) {
@@ -225,8 +231,8 @@ impl CommandBuffer {
 pub struct EditingContext {
     pub mode: Mode,
     pub focus: Focus,
-    cursor_pos: usize,
-    message_pos: u16,
+    pub cursor_pos: usize,
+    pub scroll_offset: u16,
     _undo_stack: Vec<String>,
 }
 
@@ -235,7 +241,7 @@ impl EditingContext {
         Self {
             mode: Mode::Insert,
             focus: Focus::Input,
-            message_pos: 0,
+            scroll_offset: 0,
             cursor_pos: 0,
             _undo_stack: Vec::new(),
         }
@@ -315,13 +321,15 @@ impl EditingContext {
                 }
                 SingleCommand::MoveUp => {
                     if self.focus == Focus::Messages {
-                        self.message_pos = self.message_pos.saturating_sub(1);
+                        self.scroll_offset =
+                            self.scroll_offset.saturating_sub(1);
                     }
                 }
                 SingleCommand::MoveDown => {
                     if self.focus == Focus::Messages {
                         // Scroll down or move cursor
-                        self.message_pos = (self.message_pos + 1).min(height);
+                        self.scroll_offset =
+                            (self.scroll_offset + 1).min(height);
                     }
                 }
 
@@ -363,14 +371,14 @@ impl EditingContext {
                 }
                 SingleCommand::StartFile => {
                     if self.focus == Focus::Messages {
-                        self.message_pos = 0;
+                        self.scroll_offset = 0;
                     } else {
                         self.cursor_pos = 0;
                     }
                 }
                 SingleCommand::EndFile => {
                     if self.focus == Focus::Messages {
-                        self.message_pos = height;
+                        self.scroll_offset = height;
                     } else {
                         self.cursor_pos = text.len();
                     }
