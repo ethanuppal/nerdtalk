@@ -5,6 +5,11 @@ export interface Author {
     avatarURL: string;
 }
 
+interface AuthorOptions {
+    name?: string;
+    avatarURL?: string;
+}
+
 export type AuthorRef = number
 
 export class AuthorStore {
@@ -15,6 +20,7 @@ export class AuthorStore {
         makeObservable(this, {
             authors: observable,
             addAuthor: action,
+            changeAuthor: action
         })
 
         this.addAuthor({
@@ -35,6 +41,10 @@ export class AuthorStore {
 
     getAuthor(authorRef: AuthorRef): Author {
         return this.authors[authorRef];
+    }
+
+    changeAuthor(authorRef: AuthorRef, authorAttrs: AuthorOptions) {
+        this.authors[authorRef] = {...this.authors[authorRef], ...authorAttrs}
     }
 }
 
