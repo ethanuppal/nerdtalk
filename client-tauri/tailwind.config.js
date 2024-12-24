@@ -10,7 +10,9 @@ module.exports = {
       },
       colors: {
         "primary-color": "var(--primary-color)",
-        "secondary-color": "var(--secondary-color)",
+        "background-color": "var(--background-color)",
+        "primary-text": "var(--primary-text)",
+        "secondary-text": "var(--secondary-text)"
       },
     },
   },

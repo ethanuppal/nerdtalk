@@ -32,7 +32,7 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
     >
       <button>&gt;</button>
       <input
-        className="w-full bg-transparent text-black placeholder-gray-700 focus:outline-none"
+        className="w-full bg-transparent text-primary-text placeholder-secondary-text focus:outline-none"
         type="text"
         placeholder="Enter message..."
         value={userInput}
