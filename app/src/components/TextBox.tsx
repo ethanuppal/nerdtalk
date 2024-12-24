@@ -50,7 +50,7 @@ const TextBox = observer((props: TextBoxProps) => {
         <div>
           <p>
             <span className="mr-1 font-bold">{author.name}</span>{' '}
-            <time className="text-xxs text-gray-400">
+            <time className="text-xxs text-secondary-text">
               {formatMessageAuthorDate(timestamp)}
             </time>{' '}
           </p>
