@@ -1,4 +1,4 @@
-import { AuthorRef, AuthorStore } from '@state/authorStore'
+import { UserRef, UserStore } from '@state/authorStore'
 import { format, isToday, isYesterday } from 'date-fns'
 import { observer } from 'mobx-react-lite'
 
@@ -11,11 +11,11 @@ export interface TextBoxInfo {
   type: TextBoxType
   body: string
   timestamp: Date
-  authorRef: AuthorRef,
+  userRef: UserRef
 }
 
 export interface TextBoxProps extends TextBoxInfo {
-  authorStore: AuthorStore
+  userStore: UserStore
 }
 
 function formatMessageTrailingDate(date: Date): string {
@@ -37,8 +37,14 @@ function formatMessageAuthorDate(date: Date): string {
 }
 
 const TextBox = observer((props: TextBoxProps) => {
-  const { type, body, timestamp, authorRef, authorStore } = props
-  const author = authorStore.authors[authorRef]
+  const {
+    type,
+    body,
+    timestamp,
+    userRef: authorRef,
+    userStore: authorStore,
+  } = props
+  const author = authorStore.users[authorRef]
 
   if (type == TextBoxType.Authored)
     return (
@@ -50,7 +56,7 @@ const TextBox = observer((props: TextBoxProps) => {
         <div>
           <p>
             <span className="mr-1 font-bold">{author.name}</span>{' '}
-            <time className="text-xxs text-secondary-text">
+            <time className="text-secondary-text text-xxs">
               {formatMessageAuthorDate(timestamp)}
             </time>{' '}
           </p>

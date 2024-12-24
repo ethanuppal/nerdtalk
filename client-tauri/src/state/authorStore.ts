@@ -7,60 +7,60 @@ import { makeObservable, action, observable } from 'mobx'
  * - Add author cache that deletes authors when authors aren't present anymore
  */
 
-export enum AuthorStatus {
+export enum UserStatus {
   Offline,
-  Online
+  Online,
 }
 
-export interface Author {
+export interface User {
   name: string
   avatarURL: string
-  status: AuthorStatus
+  status: UserStatus
 }
 
-interface AuthorOptions {
+interface UserOptions {
   name?: string
   avatarURL?: string
-  status?: AuthorStatus
+  status?: UserStatus
 }
 
-export type AuthorRef = number
+export type UserRef = number
 
-export class AuthorStore {
+export class UserStore {
   // TODO: Enforce uniqueness through keys
-  authors: Author[] = []
+  users: User[] = []
 
   constructor() {
     makeObservable(this, {
-      authors: observable,
-      addAuthor: action,
-      changeAuthor: action,
+      users: observable,
+      addUser: action,
+      modifyUser: action,
     })
 
-    this.addAuthor(dummyAuthor('haadi'))
-    this.addAuthor(dummyAuthor("haadi2"))
+    this.addUser(dummyUser('haadi'))
+    this.addUser(dummyUser('haadi2'))
   }
 
-  addAuthor(author: Author) {
-    this.authors.push(author)
+  addUser(user: User) {
+    this.users.push(user)
   }
 
-  getAuthor(authorRef: AuthorRef): Author {
-    return this.authors[authorRef]
+  getAuthor(userRef: UserRef): User {
+    return this.users[userRef]
   }
 
-  changeAuthor(authorRef: AuthorRef, authorAttrs: AuthorOptions) {
-    this.authors[authorRef] = { ...this.authors[authorRef], ...authorAttrs }
+  modifyUser(userRef: UserRef, userAttrs: UserOptions) {
+    this.users[userRef] = { ...this.users[userRef], ...userAttrs }
   }
 }
 
-const authorStore = new AuthorStore()
-export default authorStore
+const userStore = new UserStore()
+export default userStore
 
-function dummyAuthor(name: string, status?: AuthorStatus): Author {
+function dummyUser(name: string, status?: UserStatus): User {
   return {
     name,
-    status: status ?? AuthorStatus.Online,
+    status: status ?? UserStatus.Online,
     avatarURL:
       'https://cdn.discordapp.com/avatars/295595875168813058/9480345ded6da896d57957539bd4f881.webp?size=80',
   }
