@@ -19,11 +19,7 @@ use ratatui::{
 };
 
 mod vim;
-use tokio::{
-    sync::{mpsc, RwLock},
-    time::Instant,
-};
-use vim::{Mode, VimCommand};
+use tokio::sync::{mpsc, RwLock};
 
 /// Indicates which part of the UI is currently in “focus.”
 #[derive(Debug, PartialEq)]
@@ -75,15 +71,13 @@ async fn main() -> Result<(), io::Error> {
 
 pub struct App {
     input: String,
-    mode: Mode,
+    editing_context: vim::EditingContext,
     exit: bool,
     scroll_offset: u16,
     messages_cursor: usize,
     cursor_pos: usize,
-    normal_mode_buffer: String,
+    command_buffer: vim::CommandBuffer,
     clipboard: ClipboardContext,
-    undo_stack: Vec<String>,
-    focus: Focus,
     tx: mpsc::UnboundedSender<comms::ClientMessage>,
 }
 
@@ -91,18 +85,16 @@ impl App {
     pub fn new(tx: mpsc::UnboundedSender<comms::ClientMessage>) -> Self {
         Self {
             input: String::new(),
-            mode: Mode::Insert,
+            editing_context: vim::EditingContext::new(),
             exit: false,
             scroll_offset: 0,
             messages_cursor: 0,
             cursor_pos: 0,
-            normal_mode_buffer: String::new(),
+            command_buffer: vim::CommandBuffer::new(),
             clipboard: ClipboardContext::new().unwrap_or_else(|_| {
                 eprintln!("Failed to initialize clipboard context.");
                 copypasta::ClipboardContext::new().unwrap()
             }),
-            undo_stack: Vec::new(),
-            focus: Focus::Input,
             tx,
         }
     }
@@ -240,7 +232,7 @@ impl App {
             frame.render_widget(empty_scrollbar, message_chunks[1]);
         }
 
-        if self.focus == Focus::Messages {
+        if self.editing_context.focus == Focus::Messages {
             let relative_y = (self.messages_cursor as u16)
                 .saturating_sub(self.scroll_offset);
             let cursor_x = message_chunks[0].x + 1;
@@ -272,7 +264,7 @@ impl App {
         frame.render_widget(input_paragraph, input_chunks[0]);
         frame.render_widget(mode_paragraph, input_chunks[1]);
 
-        if self.focus == Focus::Input {
+        if self.editing_context.focus == Focus::Input {
             let line_index = if available_width_for_text > 0 {
                 self.cursor_pos as u16 / available_width_for_text
             } else {
@@ -308,11 +300,11 @@ impl App {
     }
 
     fn handle_key_event(&mut self, messages: &[String], key_event: KeyEvent) {
-        match self.mode {
-            Mode::Normal => {
+        match self.editing_context.mode {
+            vim::Mode::Normal => {
                 self.handle_key_event_normal_mode(messages, key_event)
             }
-            Mode::Insert => {
+            vim::Mode::Insert => {
                 self.handle_key_event_insert_mode(messages, key_event)
             }
         }
@@ -326,16 +318,16 @@ impl App {
     ) {
         match key_event.code {
             KeyCode::Char('j') => {
-                if self.focus == Focus::Messages {
+                if self.editing_context.focus == Focus::Messages {
                     if self.messages_cursor + 1 < messages.len() {
                         self.messages_cursor += 1;
                     } else {
-                        self.focus = Focus::Input;
+                        self.editing_context.focus = Focus::Input;
                     }
                 }
             }
             KeyCode::Char('k') => {
-                if self.focus == Focus::Messages {
+                if self.editing_context.focus == Focus::Messages {
                     if self.messages_cursor > 0 {
                         self.messages_cursor -= 1;
                     }
@@ -344,39 +336,32 @@ impl App {
                     if !messages.is_empty() {
                         self.messages_cursor = messages.len() - 1;
                     }
-                    self.focus = Focus::Messages;
+                    self.editing_context.focus = Focus::Messages;
                 }
             }
             KeyCode::Char('q') => {
                 self.exit();
                 return;
             }
+            KeyCode::Esc => {
+                self.command_buffer.clear();
+                return;
+            }
             // Use the Vim engine for the rest
             KeyCode::Char(c) => {
-                self.normal_mode_buffer.push(c);
+                self.command_buffer.push(c);
             }
             _ => {}
         };
 
-        // Now parse the normal-mode buffer
-        let mut vim_cmd = VimCommand::new(&self.normal_mode_buffer);
-        let commands = vim_cmd.parse();
-        if !commands.is_empty() {
-            vim_cmd.apply_cmds(
-                &mut self.mode,
-                &mut self.focus,
-                &mut self.cursor_pos,
-                &mut self.scroll_offset,
-                messages.len() as u16,
+        if let Some(command) = self.command_buffer.parse() {
+            // Now parse the normal-mode buffer
+            self.editing_context.apply_command(
                 &mut self.input,
                 &mut self.clipboard,
-                &mut self.undo_stack,
-                commands,
+                messages.len() as u16,
+                command,
             );
-        }
-        // Clear if we're no longer pending
-        if !vim_cmd.is_operator_pending() {
-            self.normal_mode_buffer.clear();
         }
     }
 
@@ -388,7 +373,7 @@ impl App {
     ) {
         match key_event.code {
             KeyCode::Esc => {
-                self.mode = Mode::Normal;
+                self.editing_context.mode = vim::Mode::Normal;
             }
             KeyCode::Left => {
                 self.cursor_pos = self.cursor_pos.saturating_sub(1);
@@ -471,14 +456,14 @@ impl App {
         &self,
         terminal: &mut DefaultTerminal,
     ) -> Result<(), io::Error> {
-        match self.mode {
-            Mode::Normal => {
+        match self.editing_context.mode {
+            vim::Mode::Normal => {
                 terminal.backend_mut().execute(EnableBlinking)?;
                 terminal
                     .backend_mut()
                     .execute(SetCursorStyle::SteadyBlock)?;
             }
-            Mode::Insert => {
+            vim::Mode::Insert => {
                 terminal.backend_mut().execute(DisableBlinking)?;
                 terminal
                     .backend_mut()
@@ -489,16 +474,19 @@ impl App {
     }
 
     fn mode_indicator_span(&self) -> ratatui::text::Span {
-        match self.mode {
-            Mode::Normal => {
-                if self.normal_mode_buffer.is_empty() {
+        match self.editing_context.mode {
+            vim::Mode::Normal => {
+                if self.command_buffer.is_empty() {
                     Span::styled(
                         " N ".to_string(),
                         Style::default().fg(Color::Blue),
                     )
                 } else {
-                    let display_str = &self.normal_mode_buffer
-                        [..self.normal_mode_buffer.len().min(4)];
+                    let current_command_buffer = self.command_buffer.as_slice();
+                    let display_str = String::from_iter(
+                        &current_command_buffer
+                            [0..current_command_buffer.len().min(4)],
+                    );
                     let padded = format!("{:<4}", display_str);
 
                     Span::styled(
@@ -507,7 +495,7 @@ impl App {
                     )
                 }
             }
-            Mode::Insert => Span::styled(
+            vim::Mode::Insert => Span::styled(
                 " I ".to_string(),
                 Style::default().fg(Color::Green),
             ),
