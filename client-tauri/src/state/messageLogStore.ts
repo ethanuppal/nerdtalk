@@ -51,7 +51,7 @@ export class MessageLogStore {
   }
 
   appendMessages(messages: Message[]) {
-    this.runningLog = this.runningLog.concat(messages)
+    messages.forEach((message) => this.appendMessage(message))
   }
 
   get foldAuthors() {
