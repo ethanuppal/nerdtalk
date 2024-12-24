@@ -5,7 +5,7 @@ use regex::Regex;
 
 // We import the new Focus enum so we can block editing if focus ==
 // Messages
-use crate::Focus;
+use crate::app::Focus;
 
 /// Different Vim Modes
 #[derive(Debug)]
@@ -92,13 +92,15 @@ pub struct CommandBuffer {
     chars: VecDeque<char>,
 }
 
-impl CommandBuffer {
-    pub fn new() -> Self {
+impl Default for CommandBuffer {
+    fn default() -> Self {
         Self {
             chars: VecDeque::with_capacity(8),
         }
     }
+}
 
+impl CommandBuffer {
     pub fn is_empty(&self) -> bool {
         self.chars.is_empty()
     }
@@ -237,8 +239,8 @@ pub struct EditingContext {
     _undo_stack: Vec<String>,
 }
 
-impl EditingContext {
-    pub fn new() -> Self {
+impl Default for EditingContext {
+    fn default() -> Self {
         Self {
             mode: Mode::Insert,
             focus: Focus::Input,
@@ -247,7 +249,9 @@ impl EditingContext {
             _undo_stack: Vec::new(),
         }
     }
+}
 
+impl EditingContext {
     /// Applies a [`Command`]s to `text` (rendered at a window height of
     /// `height`) the current editor state, using `clipboard` for yanking
     /// and pasting
