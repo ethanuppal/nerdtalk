@@ -36,7 +36,7 @@ pub enum SingleCommand {
 }
 
 /// A [`Motion`] indicates movement over some text, e.g. `w`, `b`, `h`, etc.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Motion {
     Left,
     Right,
@@ -51,7 +51,7 @@ pub enum Motion {
 }
 
 /// A Vim "Noun". This is the object following a verb (e.g. `dw`, `ciw`).
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Noun {
     Motion(Motion),
     InnerWord,    // "iw"
@@ -228,6 +228,7 @@ impl CommandBuffer {
     }
 }
 
+/// Vim without the text or rendering.
 pub struct EditingContext {
     pub mode: Mode,
     pub focus: Focus,
@@ -246,7 +247,10 @@ impl EditingContext {
             _undo_stack: Vec::new(),
         }
     }
-    /// Applies a [`Command`]s to the current editor state.
+
+    /// Applies a [`Command`]s to `text` (rendered at a window height of
+    /// `height`) the current editor state, using `clipboard` for yanking
+    /// and pasting
     pub fn apply_command(
         &mut self,
         text: &mut String,
@@ -398,7 +402,7 @@ impl EditingContext {
                                 &mut self.cursor_pos,
                                 text,
                                 clipboard,
-                                &noun,
+                                noun,
                             );
                         }
                         MultiCommand::Change(noun) => {
@@ -407,7 +411,7 @@ impl EditingContext {
                                 &mut self.cursor_pos,
                                 text,
                                 clipboard,
-                                &noun,
+                                noun,
                             );
                         }
                         MultiCommand::Yank(noun) => {
@@ -415,7 +419,7 @@ impl EditingContext {
                                 &mut self.cursor_pos,
                                 text,
                                 clipboard,
-                                &noun,
+                                noun,
                             );
                         }
                         MultiCommand::ChangeEOL => {
@@ -447,7 +451,7 @@ fn delete_helper(
     cursor_pos: &mut usize,
     text: &mut String,
     clipboard: &mut copypasta::ClipboardContext,
-    noun: &Noun,
+    noun: Noun,
 ) {
     match noun {
         Noun::Motion(Motion::ForwardWord) => {
@@ -480,7 +484,7 @@ fn change_helper(
     cursor_pos: &mut usize,
     text: &mut String,
     clipboard: &mut copypasta::ClipboardContext,
-    noun: &Noun,
+    noun: Noun,
 ) {
     delete_helper(cursor_pos, text, clipboard, noun);
     *mode = Mode::Insert;
@@ -490,7 +494,7 @@ fn yank_helper(
     cursor_pos: &mut usize,
     text: &str,
     clipboard: &mut copypasta::ClipboardContext,
-    noun: &Noun,
+    noun: Noun,
 ) {
     if let Noun::Motion(Motion::ForwardWord) = noun {
         let end_pos = find_next_word_boundary(text, *cursor_pos);
