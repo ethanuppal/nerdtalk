@@ -11,7 +11,7 @@ interface MessageLogDisplayProps {
 const MessageLogDisplay: React.FC<MessageLogDisplayProps> = observer(
   ({ messageLogStore }) => {
     return (
-      <div className="flex flex-grow flex-col gap-1 overflow-scroll rounded border-none bg-secondary-color py-2 text-sm">
+      <div className="flex flex-grow flex-col gap-1 overflow-scroll rounded border-none bg-primary-color py-2 text-sm">
         {messageLogStore.foldAuthors.map((message) => (
           <TextBox authorStore={authorStore} {...message} />
         ))}
