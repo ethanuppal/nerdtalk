@@ -10,7 +10,6 @@
 - [ ] Add author sidebar of offline and online users
 - [ ] Add autoscrolling to new message if already at the bottom in MessageLogDisplay
 - [ ] Add ability to jump to bottom in MessageLogDisplay
-- [ ] Redesign MessageLogDisplay text input
 
 ## Tauri
 
