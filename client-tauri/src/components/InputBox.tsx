@@ -8,6 +8,7 @@ interface InputBoxProps {
 
 const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
   const [userInput, setUserInput] = useState('')
+  const promptStyle = userInput.length != 0 ? "text-primary-text" : "text-secondary-text"
 
   const handleOnSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -30,7 +31,7 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
       className="flex gap-2 rounded border-none bg-primary-color px-2 py-2"
       onSubmit={handleOnSubmit}
     >
-      <button>&gt;</button>
+      <button className={promptStyle}>&gt;</button>
       <input
         className="w-full bg-transparent text-primary-text placeholder-secondary-text focus:outline-none"
         type="text"
