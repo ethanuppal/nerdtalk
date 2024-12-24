@@ -16,3 +16,4 @@
 
 - [ ] Create comms and client-connect bindings in rust
 - [ ] Design callback system for WS awaits and API calls
+- [ ] Add Tauri browser support
