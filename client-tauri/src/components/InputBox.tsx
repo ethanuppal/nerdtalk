@@ -20,11 +20,8 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
 
     messageLogStore.appendMessage({
       body: userInput,
-<<<<<<< HEAD:app/src/components/InputBox.tsx
       authorRef: 0,
-=======
       userRef: 0,
->>>>>>> c6485ec19dfc805ad9db3c72bde7fd337cd8a9b9:client-tauri/src/components/InputBox.tsx
       timestamp: new Date(),
     })
 
