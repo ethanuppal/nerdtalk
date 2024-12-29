@@ -21,11 +21,7 @@
 
 "Code: Web App":
   - changed-files:
-      - any-glob-to-any-file: "app/**"
-
-"Code: Web App":
-  - changed-files:
-      - any-glob-to-any-file: "app/**"
+      - any-glob-to-any-file: "client-tauri/**"
 
 "Infra: CI":
   - changed-files:
