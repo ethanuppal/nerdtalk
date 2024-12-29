@@ -19,6 +19,10 @@
   - changed-files:
       - any-glob-to-any-file: "client-tui/**"
 
+"Code: Web App":
+  - changed-files:
+      - any-glob-to-any-file: "client-tauri/**"
+
 "Infra: CI":
   - changed-files:
       - any-glob-to-any-file: ".github/workflows/*"

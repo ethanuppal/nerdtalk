@@ -13,10 +13,13 @@ jobs:
   build_and_test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-15, macos-14, macos-13]
+        os: [ubuntu-latest, macos-15, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies on Ubuntu
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev javascriptcoregtk-4.1 libsoup-3.0 webkit2gtk-4.1 -y
       - name: Rust Caching
         uses: Swatinem/rust-cache@v2
       - name: Build
