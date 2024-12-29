@@ -1,5 +1,5 @@
 [package]
-name = "client"
+name = "client-connect"
 version.workspace = true
 edition.workspace = true
 
@@ -12,6 +12,7 @@ tokio-rustls.workspace = true
 webpki-roots.workspace = true
 rustls-webpki.workspace = true
 comms.workspace = true
+chat.workspace = true
 
 [features]
 local = []

@@ -1,0 +1,17 @@
+[package]
+name = "client-tui"
+version.workspace = true
+description.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio.workspace = true
+ratatui.workspace = true
+color-eyre.workspace = true
+crossterm.workspace = true
+copypasta.workspace = true
+regex.workspace = true
+client-connect.workspace = true
+comms.workspace = true

@@ -8,7 +8,8 @@ interface InputBoxProps {
 
 const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
   const [userInput, setUserInput] = useState('')
-  const promptStyle = userInput.length != 0 ? "text-primary-text" : "text-secondary-text"
+  const promptStyle =
+    userInput.length != 0 ? 'text-primary-text' : 'text-secondary-text'
 
   const handleOnSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -19,7 +20,11 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
 
     messageLogStore.appendMessage({
       body: userInput,
+<<<<<<< HEAD:app/src/components/InputBox.tsx
       authorRef: 0,
+=======
+      userRef: 0,
+>>>>>>> c6485ec19dfc805ad9db3c72bde7fd337cd8a9b9:client-tauri/src/components/InputBox.tsx
       timestamp: new Date(),
     })
 
@@ -33,7 +38,7 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
     >
       <button className={promptStyle}>&gt;</button>
       <input
-        className="w-full bg-transparent text-primary-text placeholder-secondary-text focus:outline-none"
+        className="text-primary-text placeholder-secondary-text w-full bg-transparent focus:outline-none"
         type="text"
         placeholder="Enter message..."
         value={userInput}

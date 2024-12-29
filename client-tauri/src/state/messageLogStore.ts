@@ -1,11 +1,11 @@
 import { makeObservable, observable, action, computed } from 'mobx'
 import { TextBoxInfo, TextBoxType } from '@components/TextBox'
-import { AuthorRef } from '@state/authorStore'
+import { UserRef } from '@state/authorStore'
 
 export interface Message {
   body: string
   timestamp: Date
-  authorRef: AuthorRef
+  userRef: UserRef
   slotnum?: number
 }
 
@@ -16,22 +16,22 @@ export class MessageLogStore {
     this.runningLog = []
     this.runningLog.push({
       body: 'hello',
-      authorRef: 0,
-      timestamp: new Date()
-    })
-    this.runningLog.push({
-      body: 'hello2',
-      authorRef: 0,
+      userRef: 0,
       timestamp: new Date(),
     })
     this.runningLog.push({
       body: 'hello2',
-      authorRef: 1,
+      userRef: 0,
+      timestamp: new Date(),
+    })
+    this.runningLog.push({
+      body: 'hello2',
+      userRef: 1,
       timestamp: new Date(),
     })
     this.runningLog.push({
       body: 'hello',
-      authorRef: 1,
+      userRef: 1,
       timestamp: new Date(),
     })
 
@@ -55,18 +55,18 @@ export class MessageLogStore {
   }
 
   get foldAuthors() {
-    let lastAuthor: AuthorRef | null = null
+    let lastUser: UserRef | null = null
     let messages: TextBoxInfo[] = []
 
     for (const message of this.runningLog) {
       messages.push({
         type:
-          lastAuthor === message.authorRef
+          lastUser === message.userRef
             ? TextBoxType.Trailing
             : TextBoxType.Authored,
         ...message,
       })
-      lastAuthor = message.authorRef
+      lastUser = message.userRef
     }
 
     return messages
