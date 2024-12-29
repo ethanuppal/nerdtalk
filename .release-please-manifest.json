@@ -1,0 +1,6 @@
+{
+  "bootstrap-sha": "3ec09255507146084dbe1da154929f9092fb1d45",
+  "plugins": ["cargo-workspace"],
+  "release-type": "rust",
+  "prerelease": true
+}
