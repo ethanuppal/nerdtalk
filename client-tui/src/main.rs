@@ -1,7 +1,7 @@
 use std::{env, io, sync::Arc};
 
 use client_tui::app::App;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
@@ -25,12 +25,15 @@ async fn main() -> Result<(), io::Error> {
         while let Some(server_message) = rx.recv().await {
             let server_message = server_message.expect("todo");
             match server_message {
-                comms::ServerMessage::NewEntry(chat_log_entry) => {
-                    messages.write().await.push(format!(
-                        "{}: {}",
-                        chat_log_entry.username, chat_log_entry.content
-                    ));
-                }
+                comms::ServerMessage::NewEntry(chat_log_entry) => loop {
+                    if let Ok(mut lock) = messages.try_write() {
+                        lock.push(format!(
+                            "{}: {}",
+                            chat_log_entry.username, chat_log_entry.content
+                        ));
+                        break;
+                    }
+                },
             }
         }
     });
