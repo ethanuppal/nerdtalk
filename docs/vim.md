@@ -13,6 +13,8 @@ Motion:
 - e
 - 0
 - $
+- f/F
+- t/T
 
 Edit/Insert:
 - i/I
@@ -27,7 +29,6 @@ Text objects (iw, etc.)
 
 ## In-Progress/Future
 - visual mode
-- f/F/t/T
 - / for search (waiting on API)
 
 ## Not Planned (atm)
