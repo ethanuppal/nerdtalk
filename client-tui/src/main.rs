@@ -13,10 +13,7 @@ async fn main() -> Result<(), io::Error> {
         .await
         .map_err(io::Error::other)?;
 
-    let messages = Arc::new(RwLock::new(vec![
-        "Welcome to the chat!".into(),
-        "Type a message and press Enter.".into(),
-    ]));
+    let messages = Arc::new(RwLock::new(vec![]));
     let app_messages = messages.clone();
 
     let mut app = App::new(tx);
@@ -27,10 +24,7 @@ async fn main() -> Result<(), io::Error> {
             match server_message {
                 comms::ServerMessage::NewEntry(chat_log_entry) => loop {
                     if let Ok(mut lock) = messages.try_write() {
-                        lock.push(format!(
-                            "{}: {}",
-                            chat_log_entry.username, chat_log_entry.content
-                        ));
+                        lock.push(chat_log_entry);
                         break;
                     }
                 },
