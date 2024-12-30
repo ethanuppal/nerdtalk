@@ -1,4 +1,5 @@
 use std::{
+    cmp,
     collections::HashMap,
     env, error,
     fmt::{self},
@@ -56,8 +57,10 @@ impl FakeChatLog {
             .rfind(|(_, entry)| entry.slot_number == last_slot)
             .expect("slot missing todo don't crash server on this lol")
             .0;
+        let count = cmp::min(count, last_index + 1);
 
-        self.lmao[last_index - count + 1..last_index + 1].to_owned()
+        // needs to +1 before -count
+        self.lmao[last_index + 1 - count..last_index + 1].to_owned()
     }
 }
 
@@ -148,6 +151,7 @@ async fn main() -> Result<(), Error> {
     });
 
     while let Some((sender, message)) = message_rx.recv().await {
+        println!("server processing message: {:?}", message);
         match message {
             comms::ClientMessage::Append(append_chat_entry) => {
                 let entry = fake_chat_log.append(append_chat_entry);
@@ -193,6 +197,7 @@ struct Session {
 
 impl Session {
     fn send(&self, message: comms::ServerMessage) {
+        println!("sending reply {:?}", message);
         self.to_client_tx
             .send(Message::binary(message.to_bytes()))
             .expect("todo");
