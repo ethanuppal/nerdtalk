@@ -19,10 +19,10 @@ async fn main() -> ClientConnectionResult<()> {
         if line.is_empty() {
             break;
         }
-        tx.send(comms::ClientMessage::Append(comms::AppendChatEntry {
+        tx.send(comms::ClientMessage::Post {
             username: username.clone(),
             content: line,
-        }))
+        })
         .expect("todo");
     }
 

@@ -18,16 +18,12 @@ pub trait Codable {
     }
 }
 
-// TODO: get rid of this
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AppendChatEntry {
-    pub username: String,
-    pub content: String,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
-    Append(AppendChatEntry),
+    Post {
+        username: String,
+        content: String,
+    },
     Request {
         count: usize,
         up_to_slot_number: Option<usize>,

@@ -411,10 +411,10 @@ impl App {
         let trimmed = self.input.trim();
         if !trimmed.is_empty() {
             self.tx
-                .send(comms::ClientMessage::Append(comms::AppendChatEntry {
+                .send(comms::ClientMessage::Post {
                     username: "me".to_string(),
                     content: trimmed.to_string(),
-                }))
+                })
                 .expect("channel closed on server");
         }
         self.input.clear();
