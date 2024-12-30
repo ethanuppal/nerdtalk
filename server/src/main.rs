@@ -1,8 +1,9 @@
 use std::{
+    cmp,
     collections::HashMap,
     env, error,
-    fmt::{self, Display},
-    io,
+    fmt::{self},
+    io, net,
     sync::Arc,
 };
 
@@ -37,6 +38,29 @@ impl FakeChatLog {
         );
         self.lmao.push(entry.clone());
         entry
+    }
+
+    fn entries(
+        &self,
+        count: usize,
+        last_slot: Option<usize>,
+    ) -> Vec<chat::Entry> {
+        let Some(last_entry) = self.lmao.last() else {
+            return vec![];
+        };
+        let last_slot = last_slot.unwrap_or(last_entry.slot_number);
+
+        let last_index = self
+            .lmao
+            .iter()
+            .enumerate()
+            .rfind(|(_, entry)| entry.slot_number == last_slot)
+            .expect("slot missing todo don't crash server on this lol")
+            .0;
+        let count = cmp::min(count, last_index + 1);
+
+        // needs to +1 before -count
+        self.lmao[last_index + 1 - count..last_index + 1].to_owned()
     }
 }
 
@@ -126,10 +150,23 @@ async fn main() -> Result<(), Error> {
         }
     });
 
-    while let Some(append) = message_rx.recv().await {
-        let entry = fake_chat_log.append(append);
-        for (_, session) in sessions.read().await.iter() {
-            session.send(comms::ServerMessage::NewEntry(entry.clone()));
+    while let Some((sender, message)) = message_rx.recv().await {
+        println!("server processing message: {:?}", message);
+        match message {
+            comms::ClientMessage::Append(append_chat_entry) => {
+                let entry = fake_chat_log.append(append_chat_entry);
+                for (_, session) in sessions.read().await.iter() {
+                    session.send(comms::ServerMessage::NewEntry(entry.clone()));
+                }
+            }
+            comms::ClientMessage::Request {
+                count,
+                up_to_slot_number,
+            } => {
+                let entries = fake_chat_log.entries(count, up_to_slot_number);
+                sessions.read().await[&sender]
+                    .send(comms::ServerMessage::EntryRange(entries));
+            }
         }
     }
 
@@ -160,17 +197,18 @@ struct Session {
 
 impl Session {
     fn send(&self, message: comms::ServerMessage) {
+        println!("sending reply {:?}", message);
         self.to_client_tx
             .send(Message::binary(message.to_bytes()))
             .expect("todo");
     }
 }
 
-async fn new_client_connection<D: Display + Clone>(
+async fn new_client_connection(
     tcp_stream: TcpStream,
-    client_address: D,
+    client_address: net::SocketAddr,
     tls_acceptor: &TlsAcceptor,
-    message_tx: &mpsc::UnboundedSender<AppendChatEntry>,
+    message_tx: &mpsc::UnboundedSender<(net::SocketAddr, comms::ClientMessage)>,
 ) -> Result<Session, SessionError> {
     let tls_acceptor = tls_acceptor.clone();
     let message_tx = message_tx.clone();
@@ -207,12 +245,9 @@ async fn new_client_connection<D: Display + Clone>(
                                     "server got message: {:?}",
                                     client_request
                                 );
-                                match client_request {
-                                    comms::ClientMessage::Append(append) => {
-                                        message_tx.send(append).expect("todo");
-                                    }
-                                    _ => todo!(),
-                                }
+                                message_tx
+                                    .send((client_address, client_request))
+                                    .expect("todo");
                             }
                             Message::Close(close_frame) => {
                                 write_websocket_thread_tx

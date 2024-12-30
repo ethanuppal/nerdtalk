@@ -18,6 +18,7 @@ pub trait Codable {
     }
 }
 
+// TODO: get rid of this
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppendChatEntry {
     pub username: String,
@@ -38,6 +39,7 @@ impl Codable for ClientMessage {}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerMessage {
     NewEntry(Entry),
+    EntryRange(Vec<chat::Entry>),
 }
 
 impl Codable for ServerMessage {}
