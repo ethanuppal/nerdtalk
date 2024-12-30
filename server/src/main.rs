@@ -1,4 +1,10 @@
-use std::{collections::HashMap, env, fmt::Display, io, sync::Arc};
+use std::{
+    collections::HashMap,
+    env, error,
+    fmt::{self, Display},
+    io,
+    sync::Arc,
+};
 
 use comms::{AppendChatEntry, Codable};
 use futures_util::{SinkExt, StreamExt};
@@ -39,6 +45,17 @@ enum Error {
     Tls(tokio_rustls::rustls::Error),
     Io(io::Error),
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Tls(error) => error.fmt(f),
+            Error::Io(error) => error.fmt(f),
+        }
+    }
+}
+
+impl error::Error for Error {}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -101,7 +118,7 @@ async fn main() -> Result<(), Error> {
                 }
                 Err(error) => {
                     println!(
-                        "failed to make session with {}: {:?}",
+                        "failed to make session with {}: {}",
                         client_address, error
                     );
                 }
@@ -111,7 +128,7 @@ async fn main() -> Result<(), Error> {
 
     while let Some(append) = message_rx.recv().await {
         let entry = fake_chat_log.append(append);
-        for (client, session) in sessions.read().await.iter() {
+        for (_, session) in sessions.read().await.iter() {
             session.send(comms::ServerMessage::NewEntry(entry.clone()));
         }
     }
@@ -125,9 +142,20 @@ enum SessionError {
     WebSocket(tokio_tungstenite::tungstenite::Error),
 }
 
+impl fmt::Display for SessionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SessionError::IO(error) => error.fmt(f),
+            SessionError::WebSocket(error) => error.fmt(f),
+        }
+    }
+}
+
+impl error::Error for SessionError {}
+
 struct Session {
     to_client_tx: mpsc::UnboundedSender<Message>,
-    join_handle: JoinHandle<()>,
+    _join_handle: JoinHandle<()>,
 }
 
 impl Session {
@@ -215,6 +243,6 @@ async fn new_client_connection<D: Display + Clone>(
 
     Ok(Session {
         to_client_tx: write_websocket_tx,
-        join_handle,
+        _join_handle: join_handle,
     })
 }
