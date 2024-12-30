@@ -33,7 +33,8 @@ async fn main() -> ClientConnectionResult<()> {
                 comms::ServerMessage::NewEntry(chat_log_entry) => {
                     println!(
                         "{}: {}",
-                        chat_log_entry.username, chat_log_entry.content
+                        chat_log_entry.metadata.username,
+                        chat_log_entry.content
                     );
                 }
             }
