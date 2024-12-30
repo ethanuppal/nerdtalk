@@ -11,7 +11,7 @@ use crossterm::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Style, Stylize},
     symbols::border,
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
@@ -57,7 +57,7 @@ impl App {
     pub async fn run(
         &mut self,
         terminal: &mut DefaultTerminal,
-        messages: Arc<RwLock<Vec<String>>>,
+        messages: Arc<RwLock<Vec<chat::Entry>>>,
     ) -> Result<(), io::Error> {
         let mut interval =
             tokio::time::interval(time::Duration::from_millis(20));
@@ -75,7 +75,7 @@ impl App {
         Ok(())
     }
 
-    fn draw(&mut self, messages: &[String], frame: &mut Frame) {
+    fn draw(&mut self, messages: &[chat::Entry], frame: &mut Frame) {
         let size = frame.area();
 
         let available_width_for_text = if size.width > 5 {
@@ -106,13 +106,36 @@ impl App {
 
     fn draw_messages_area(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         frame: &mut Frame,
         area: Rect,
     ) {
         let text_lines: Vec<Line> = messages
             .iter()
-            .map(|msg| Line::from(Span::raw(msg)))
+            .map(|message| {
+                Line::from_iter([
+                    Span::styled(
+                        format!("[{}] ", message.metadata.timestamp),
+                        Style::new().dim(),
+                    ),
+                    Span::styled(
+                        &message.metadata.username,
+                        Style::new().yellow(),
+                    ),
+                    Span::raw(format!(
+                        ": {}",
+                        message.text_content().expect("todo: deleted messaged")
+                    )),
+                    Span::styled(
+                        if matches!(message.content, chat::Content::Edited(_)) {
+                            " (edited)"
+                        } else {
+                            ""
+                        },
+                        Style::new().dim(),
+                    ),
+                ])
+            })
             .collect();
 
         let inner_height = area.height.saturating_sub(2);
@@ -241,7 +264,10 @@ impl App {
         }
     }
 
-    fn handle_events(&mut self, messages: &[String]) -> Result<(), io::Error> {
+    fn handle_events(
+        &mut self,
+        messages: &[chat::Entry],
+    ) -> Result<(), io::Error> {
         if event::poll(time::Duration::from_millis(5))? {
             match event::read()? {
                 Event::Key(key_event)
@@ -258,7 +284,11 @@ impl App {
         Ok(())
     }
 
-    fn handle_key_event(&mut self, messages: &[String], key_event: KeyEvent) {
+    fn handle_key_event(
+        &mut self,
+        messages: &[chat::Entry],
+        key_event: KeyEvent,
+    ) {
         match self.editing_context.mode {
             vim::Mode::Normal => {
                 self.handle_key_event_normal_mode(messages, key_event)
@@ -272,7 +302,7 @@ impl App {
     /// Normal mode: typed characters are interpreted as Vim commands.
     fn handle_key_event_normal_mode(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         key_event: KeyEvent,
     ) {
         match key_event.code {
@@ -327,7 +357,7 @@ impl App {
     /// Insert mode: typed characters are inserted into `self.input`.
     fn handle_key_event_insert_mode(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         key_event: KeyEvent,
     ) {
         match key_event.code {
@@ -359,7 +389,7 @@ impl App {
 
     fn handle_mouse_event(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         mouse_event: MouseEvent,
     ) {
         match mouse_event.kind {
@@ -377,7 +407,7 @@ impl App {
         self.exit = true;
     }
 
-    fn send_message(&mut self, messages: &[String]) {
+    fn send_message(&mut self, messages: &[chat::Entry]) {
         let trimmed = self.input.trim();
         if !trimmed.is_empty() {
             self.tx
@@ -392,7 +422,7 @@ impl App {
         self.scroll_to_bottom(messages);
     }
 
-    fn scroll_to_bottom(&mut self, messages: &[String]) {
+    fn scroll_to_bottom(&mut self, messages: &[chat::Entry]) {
         if !messages.is_empty() {
             self.messages_cursor = messages.len() - 1;
         }
@@ -408,7 +438,7 @@ impl App {
         }
     }
 
-    fn scroll_down(&mut self, messages: &[String], lines: u16) {
+    fn scroll_down(&mut self, messages: &[chat::Entry], lines: u16) {
         let total_lines = messages.len() as u16;
         self.editing_context.scroll_offset =
             (self.editing_context.scroll_offset + lines)

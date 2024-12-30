@@ -1,5 +1,5 @@
 pub use bincode::{Error as CodingError, ErrorKind as CodingErrorKind};
-use chat::ChatLogEntry;
+use chat::Entry;
 use serde::{Deserialize, Serialize};
 
 pub trait Codable {
@@ -37,7 +37,7 @@ impl Codable for ClientMessage {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerMessage {
-    NewEntry(ChatLogEntry),
+    NewEntry(Entry),
 }
 
 impl Codable for ServerMessage {}

@@ -30,7 +30,7 @@ impl fmt::Display for ClientConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ClientConnectionError::InvalidRootCertificate {
-                message,
+                message: _,
                 cause,
             } => cause.fmt(f),
             ClientConnectionError::WebSocketFailure(cause) => cause.fmt(f),

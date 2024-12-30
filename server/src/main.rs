@@ -1,6 +1,5 @@
 use std::{collections::HashMap, env, fmt::Display, io, sync::Arc};
 
-use chat::ChatLogEntry;
 use comms::{AppendChatEntry, Codable};
 use futures_util::{SinkExt, StreamExt};
 use log::info;
@@ -20,15 +19,15 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Default)]
 struct FakeChatLog {
-    lmao: Vec<ChatLogEntry>,
+    lmao: Vec<chat::Entry>,
 }
 
 impl FakeChatLog {
-    fn append(&mut self, append: AppendChatEntry) -> ChatLogEntry {
-        let entry = ChatLogEntry::new_timestamped_now(
+    fn append(&mut self, append: AppendChatEntry) -> chat::Entry {
+        let entry = chat::Entry::new_timestamped_now(
             self.lmao.len(),
             append.username,
-            append.content,
+            chat::Content::Original(chat::MessageText(append.content)),
         );
         self.lmao.push(entry.clone());
         entry
@@ -46,15 +45,17 @@ async fn main() -> Result<(), Error> {
     let _ = env_logger::try_init();
 
     let certificate = if cfg!(feature = "local") {
-        CertificateDer::from_pem_file("testing_cert/cert.pem")
-            .expect("Did you remember to run ./gen_cert.sh for local testing?")
+        CertificateDer::from_pem_file("testing_cert/cert.pem").expect(
+            "Did you remember to run ./scripts/gen_cert.sh for local testing?",
+        )
     } else {
         todo!("Ask Peter for midcode certificate")
     };
 
     let private_key = if cfg!(feature = "local") {
-        PrivateKeyDer::from_pem_file("testing_cert/key.pem")
-            .expect("Did you remember to run ./gen_cert.sh for local testing?")
+        PrivateKeyDer::from_pem_file("testing_cert/key.pem").expect(
+            "Did you remember to run ./scripts/gen_cert.sh for local testing?",
+        )
     } else {
         todo!("Ask Peter for midcode private key")
     };
@@ -68,7 +69,7 @@ async fn main() -> Result<(), Error> {
 
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8443".to_string());
+        .expect("server takes the address:port it should listen to as a command-line argument");
 
     let listener = TcpListener::bind(&addr).await.map_err(Error::Io)?;
     info!("Listening on: {}", addr);
