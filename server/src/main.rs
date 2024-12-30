@@ -9,7 +9,6 @@ use std::{
 
 use comms::Codable;
 use futures_util::{SinkExt, StreamExt};
-use log::info;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{mpsc, RwLock},
@@ -83,7 +82,7 @@ impl error::Error for Error {}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let _ = env_logger::try_init();
+    let _ = env_logger::try_init_from_env("LOG");
 
     let certificate = if cfg!(feature = "local") {
         CertificateDer::from_pem_file("testing_cert/cert.pem").expect(
@@ -108,12 +107,12 @@ async fn main() -> Result<(), Error> {
 
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
-    let addr = env::args()
+    let address = env::args()
         .nth(1)
-        .expect("server takes the address:port it should listen to as a command-line argument");
+        .expect("Server takes the address:port it should listen to as a command-line argument");
 
-    let listener = TcpListener::bind(&addr).await.map_err(Error::Io)?;
-    info!("Listening on: {}", addr);
+    let listener = TcpListener::bind(&address).await.map_err(Error::Io)?;
+    log::info!("Listening on {}", address);
 
     let (message_tx, mut message_rx) = mpsc::unbounded_channel();
     let sessions = Arc::new(RwLock::new(HashMap::new()));
@@ -124,26 +123,33 @@ async fn main() -> Result<(), Error> {
     tokio::spawn(async move {
         // TODO: thread pool
         while let Ok((tcp_stream, _)) = listener.accept().await {
-            let client_address =
-                tcp_stream.peer_addr().expect("missing address");
-            match new_client_connection(
-                tcp_stream,
-                client_address,
-                &tls_acceptor,
-                &message_tx,
-            )
-            .await
-            {
-                Ok(session) => {
-                    sessions_for_thread
-                        .write()
-                        .await
-                        .insert(client_address, session);
-                }
+            match tcp_stream.peer_addr() {
+                Ok(client_address) => match new_client_connection(
+                    tcp_stream,
+                    client_address,
+                    &tls_acceptor,
+                    &message_tx,
+                )
+                .await
+                {
+                    Ok(session) => {
+                        sessions_for_thread
+                            .write()
+                            .await
+                            .insert(client_address, session);
+                    }
+                    Err(error) => {
+                        log::error!(
+                            "Failed to establish session with client address {}: {}",
+                            client_address,
+                            error
+                        );
+                    }
+                },
                 Err(error) => {
-                    println!(
-                        "failed to make session with {}: {}",
-                        client_address, error
+                    log::warn!(
+                        "Failed to extract client address from TCP stream: {}",
+                        error
                     );
                 }
             }
@@ -151,7 +157,7 @@ async fn main() -> Result<(), Error> {
     });
 
     while let Some((sender, message)) = message_rx.recv().await {
-        println!("server processing message: {:?}", message);
+        log::info!("Processing message: {:?}", message);
         match message {
             comms::ClientMessage::Post { username, content } => {
                 let entry = fake_chat_log.post(username, content);
@@ -191,13 +197,18 @@ impl fmt::Display for SessionError {
 impl error::Error for SessionError {}
 
 struct Session {
+    client_address: net::SocketAddr,
     to_client_tx: mpsc::UnboundedSender<Message>,
     _join_handle: JoinHandle<()>,
 }
 
 impl Session {
     fn send(&self, message: comms::ServerMessage) {
-        println!("sending reply {:?}", message);
+        log::info!(
+            "Sending reply {:?} to client address {}",
+            message,
+            self.client_address
+        );
         self.to_client_tx
             .send(Message::binary(message.to_bytes()))
             .expect("todo");
@@ -221,7 +232,10 @@ async fn new_client_connection(
         .await
         .map_err(SessionError::WebSocket)?;
 
-    println!("established connection with {}", client_address);
+    log::info!(
+        "Established connection with client address {}",
+        client_address
+    );
 
     let (mut websocket_write, mut websocket_read) = websocket.split();
 
@@ -234,30 +248,40 @@ async fn new_client_connection(
             async {
                 while let Some(message) = websocket_read.next().await {
                     match message {
-                        Ok(message) => match message {
-                            Message::Binary(message_bytes) => {
-                                let client_request =
-                                    comms::ClientMessage::try_from_bytes(
+                        Ok(message) => {
+                            match message {
+                                Message::Binary(message_bytes) => {
+                                    match comms::ClientMessage::try_from_bytes(
                                         &message_bytes,
-                                    )
-                                    .expect("failed to decode client request");
-                                println!(
-                                    "server got message: {:?}",
-                                    client_request
-                                );
-                                message_tx
-                                    .send((client_address, client_request))
-                                    .expect("todo");
-                            }
-                            Message::Close(close_frame) => {
-                                write_websocket_thread_tx
+                                    ) {
+                                        Ok(client_request) => {
+                                            log::info!(
+                                            "Received {:?} from client address {}",
+                                            client_request,
+                                            client_address
+                                        );
+                                            message_tx
+                                            .send((
+                                                client_address,
+                                                client_request,
+                                            ))
+                                            .expect("Failed to queue client message for processing");
+                                        }
+                                        Err(decoding_error) => {
+                                            log::error!("Failed to decode client request message: {}", decoding_error);
+                                        }
+                                    }
+                                }
+                                Message::Close(close_frame) => {
+                                    write_websocket_thread_tx
                                     .send(Message::Close(close_frame))
-                                    .expect("todo");
-                                println!("closing connection");
-                                break;
+                                    .expect("Failed to close websocket with client");
+                                    log::info!("Closing connection with client address {}", client_address);
+                                    break;
+                                }
+                                _ => todo!(),
                             }
-                            _ => todo!(),
-                        },
+                        }
                         Err(error) => {
                             todo!("{:?}", error);
                         }
@@ -270,13 +294,19 @@ async fn new_client_connection(
                         // websocket_write.send(message).await.expect("todo");
                         break;
                     }
-                    websocket_write.send(message).await.expect("todo");
+                    websocket_write.send(message).await.unwrap_or_else(|_| {
+                        panic!(
+                            "Failed to send message to client address {}",
+                            client_address
+                        )
+                    });
                 }
             }
         );
     });
 
     Ok(Session {
+        client_address,
         to_client_tx: write_websocket_tx,
         _join_handle: join_handle,
     })
