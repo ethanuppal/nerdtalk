@@ -114,7 +114,35 @@ impl App {
     ) {
         let text_lines: Vec<Line> = messages
             .iter()
-            .map(|msg| Line::from(Span::raw(msg)))
+            .enumerate()
+            .map(|(i, msg)| {
+                if i == self.messages_cursor
+                    && self.editing_context.focus == Focus::Messages
+                    && matches!(self.editing_context.mode, vim::Mode::Visual)
+                {
+                    if let Some(anchor) = self.visual_anchor {
+                        // Visual selection for the current message line
+                        render_text_with_selection(
+                            msg,
+                            anchor,
+                            self.editing_context.cursor_pos,
+                        )
+                    } else {
+                        // No anchor set yet, just return raw
+                        Line::from(Span::raw(msg))
+                    }
+                } else if i == self.messages_cursor
+                    && self.editing_context.focus == Focus::Messages
+                    && matches!(self.editing_context.mode, vim::Mode::Normal)
+                {
+                    // In Normal mode with the message in focus,
+                    // no highlighting, just plain text
+                    Line::from(Span::raw(msg))
+                } else {
+                    // Not the selected line, or out of focus
+                    Line::from(Span::raw(msg))
+                }
+            })
             .collect();
 
         let inner_height = area.height.saturating_sub(2);
@@ -154,6 +182,7 @@ impl App {
 
         frame.render_widget(messages_paragraph, message_chunks[0]);
 
+        // Scrollbar
         if total_lines > inner_height {
             let scrollbar_inner_height =
                 message_chunks[1].height.saturating_sub(2);
@@ -191,18 +220,21 @@ impl App {
             frame.render_widget(empty_scrollbar, message_chunks[1]);
         }
 
+        // CHANGED: If focus == Messages, place the cursor on the line, taking
+        // into account the horizontal cursor position (editing_context.cursor_pos).
         if self.editing_context.focus == Focus::Messages {
+            // relative_y = the vertical position inside the visible region
             let relative_y = (self.messages_cursor as u16)
                 .saturating_sub(self.editing_context.scroll_offset);
-            let relative_x = if self.editing_context.cursor_pos
-                > messages[self.messages_cursor].len()
-            {
-                (messages[self.messages_cursor].len().saturating_sub(1)) as u16
-            } else {
-                self.editing_context.cursor_pos as u16
-            };
+            // Bound cursor_x by the line length
+            let line_length = messages[self.messages_cursor].len();
+            let relative_x = self
+                .editing_context
+                .cursor_pos
+                .min(line_length)
+                .saturating_sub(0);
 
-            let cursor_x = message_chunks[0].x + 1 + relative_x;
+            let cursor_x = message_chunks[0].x + 1 + relative_x as u16;
             let cursor_y = message_chunks[0].y + 1 + relative_y;
             frame.set_cursor_position((cursor_x, cursor_y));
         }
@@ -214,16 +246,19 @@ impl App {
         area: Rect,
         available_width_for_text: u16,
     ) {
-        let displayed_text =
-            if let vim::Mode::Visual = self.editing_context.mode {
-                render_input_with_selection(
-                    &self.input,
-                    self.visual_anchor,
-                    self.editing_context.cursor_pos,
-                )
-            } else {
-                Text::from(Span::raw(&self.input))
-            };
+        // We still highlight the input area if we are in Visual mode and focus=Input
+        let displayed_text = if self.editing_context.focus == Focus::Input
+            && matches!(self.editing_context.mode, vim::Mode::Visual)
+        {
+            render_text_with_selection(
+                &self.input,
+                self.visual_anchor.unwrap_or(0),
+                self.editing_context.cursor_pos,
+            )
+        } else {
+            // regular text
+            Line::from(Span::raw(&self.input))
+        };
 
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -305,6 +340,7 @@ impl App {
                         self.messages_cursor += 1;
                     } else {
                         self.editing_context.focus = Focus::Input;
+                        self.editing_context.cursor_pos = 0;
                     }
                 }
             }
@@ -335,16 +371,35 @@ impl App {
                 self.command_buffer.clear();
                 return;
             }
+
             // Use the Vim engine for the rest
             KeyCode::Char(c) => {
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        self.editing_context.message_len =
+                            messages[self.messages_cursor].len();
+                    }
+                    Focus::Input => {
+                        self.editing_context.message_len = self.input.len();
+                    }
+                }
                 self.command_buffer.push(c);
             }
             _ => {}
         };
 
         if let Some(command) = self.command_buffer.parse() {
+            let mut msg_input = String::new();
+            if self.editing_context.focus == Focus::Messages {
+                msg_input = messages[self.messages_cursor].clone();
+            }
+
             self.editing_context.apply_command(
-                &mut self.input,
+                if let Focus::Input = self.editing_context.focus {
+                    &mut self.input
+                } else {
+                    &mut msg_input // This isn't *really* mutable
+                },
                 &mut self.clipboard,
                 messages.len() as u16,
                 command,
@@ -395,31 +450,50 @@ impl App {
                 self.editing_context.mode = vim::Mode::Normal;
                 self.visual_anchor = None;
             }
-            KeyCode::Left => {
-                self.editing_context.cursor_pos =
-                    self.editing_context.cursor_pos.saturating_sub(1);
+            KeyCode::Left | KeyCode::Char('h') => {
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        self.editing_context.cursor_pos =
+                            self.editing_context.cursor_pos.saturating_sub(1);
+                    }
+                    Focus::Input => {
+                        self.editing_context.cursor_pos =
+                            self.editing_context.cursor_pos.saturating_sub(1);
+                    }
+                }
             }
-            KeyCode::Right => {
-                self.editing_context.cursor_pos =
-                    (self.editing_context.cursor_pos + 1).min(self.input.len());
-            }
-            KeyCode::Char('h') => {
-                self.editing_context.cursor_pos =
-                    self.editing_context.cursor_pos.saturating_sub(1);
-            }
-            KeyCode::Char('l') => {
-                self.editing_context.cursor_pos =
-                    (self.editing_context.cursor_pos + 1).min(self.input.len());
+            KeyCode::Right | KeyCode::Char('l') => {
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        let line_len = messages[self.messages_cursor].len();
+                        self.editing_context.cursor_pos =
+                            (self.editing_context.cursor_pos + 1).min(line_len);
+                    }
+                    Focus::Input => {
+                        self.editing_context.cursor_pos =
+                            (self.editing_context.cursor_pos + 1)
+                                .min(self.input.len());
+                    }
+                }
             }
 
             KeyCode::Char('y') => {
-                self.yank_visual_selection();
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        self.yank_visual(&messages[self.messages_cursor]);
+                    }
+                    Focus::Input => {
+                        self.yank_visual(self.input.clone().as_str());
+                    }
+                }
                 self.editing_context.mode = vim::Mode::Normal;
                 self.visual_anchor = None;
             }
 
             KeyCode::Char('d') => {
-                self.delete_visual_selection();
+                if self.editing_context.focus == Focus::Input {
+                    self.delete_visual(self.input.clone().as_str());
+                }
                 self.editing_context.mode = vim::Mode::Normal;
                 self.visual_anchor = None;
             }
@@ -474,9 +548,6 @@ impl App {
     fn scroll_up(&mut self, lines: u16) {
         self.editing_context.scroll_offset =
             self.editing_context.scroll_offset.saturating_sub(lines);
-        if self.messages_cursor as u16 >= self.editing_context.scroll_offset {
-            // keep the messages_cursor in sync if needed
-        }
     }
 
     fn scroll_down(&mut self, messages: &[String], lines: u16) {
@@ -486,31 +557,30 @@ impl App {
                 .min(total_lines.saturating_sub(1));
     }
 
-    fn yank_visual_selection(&mut self) {
+    fn yank_visual(&mut self, text: &str) {
         if let Some(anchor) = self.visual_anchor {
             let (start, end) = if anchor <= self.editing_context.cursor_pos {
                 (anchor, self.editing_context.cursor_pos)
             } else {
                 (self.editing_context.cursor_pos, anchor)
             };
-            if start < end && end <= self.input.len() {
-                let selected = &self.input[start..end];
+            if start < end && end <= text.len() {
+                let selected = &text[start..end];
                 let _ = self.clipboard.set_contents(selected.to_string());
             }
         }
     }
 
-    fn delete_visual_selection(&mut self) {
+    fn delete_visual(&mut self, text: &str) {
         if let Some(anchor) = self.visual_anchor {
             let (start, end) = if anchor <= self.editing_context.cursor_pos {
                 (anchor, self.editing_context.cursor_pos)
             } else {
                 (self.editing_context.cursor_pos, anchor)
             };
-            if start < end && end <= self.input.len() {
-                let selected = &self.input[start..end];
+            if start < end && end <= text.len() {
+                let selected = &text[start..end];
                 let _ = self.clipboard.set_contents(selected.to_string());
-
                 self.input.drain(start..end);
                 self.editing_context.cursor_pos = start;
             }
@@ -575,38 +645,35 @@ impl App {
     }
 }
 
-/// A small helper function to render the input text with a highlighted region
-/// (for Visual mode) between visual_anchor and cursor_pos.
-fn render_input_with_selection(
-    text: &str,
-    visual_anchor: Option<usize>,
+/// A helper function to render text with a highlighted region (for Visual mode).
+/// We can use this for either the `input` string or the currently focused
+/// message line. This returns a single [`Line`] so it’s most suitable
+/// for single-line text.
+fn render_text_with_selection<'a>(
+    text: &'a str,
+    anchor: usize,
     cursor_pos: usize,
-) -> Text<'_> {
-    if visual_anchor.is_none() {
-        return Text::from(Span::raw(text));
-    }
-    let anchor = visual_anchor.unwrap();
+) -> Line<'a> {
     let (start, end) = if anchor <= cursor_pos {
         (anchor, cursor_pos)
     } else {
         (cursor_pos, anchor)
     };
 
-    // Safety checks
     if start >= end || end > text.len() {
-        return Text::from(Span::raw(text));
+        return Line::from(Span::raw(text));
     }
 
     let before = &text[..start];
     let selected = &text[start..end];
     let after = &text[end..];
 
-    Text::from(Line::from(vec![
+    Line::from(vec![
         Span::raw(before),
         Span::styled(
             selected,
             Style::default().bg(Color::LightBlue).fg(Color::Black),
         ),
         Span::raw(after),
-    ]))
+    ])
 }

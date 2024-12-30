@@ -202,12 +202,8 @@ impl CommandBuffer {
 
     fn parse_multi_command(&mut self) -> Option<(MultiCommand, usize)> {
         match self.current() {
-            'C' => {
-                Some((MultiCommand::ChangeEOL, 2))
-            }
-            'r' | 'R' => {
-                Some((MultiCommand::Replace(self.peek(1)?), 2))
-            }
+            'C' => Some((MultiCommand::ChangeEOL, 2)),
+            'r' | 'R' => Some((MultiCommand::Replace(self.peek(1)?), 2)),
             _ => self.parse_multi_command_with_noun(),
         }
     }
@@ -293,6 +289,7 @@ pub struct EditingContext {
     pub focus: Focus,
     pub cursor_pos: usize,
     pub scroll_offset: u16,
+    pub message_len: usize,
     _undo_stack: Vec<String>,
 }
 
@@ -303,6 +300,7 @@ impl Default for EditingContext {
             focus: Focus::Input,
             scroll_offset: 0,
             cursor_pos: 0,
+            message_len: 0,
             _undo_stack: Vec::new(),
         }
     }
@@ -374,117 +372,90 @@ impl EditingContext {
                 }
 
                 SingleCommand::Motion(motion) => {
-                    if self.focus == Focus::Messages {
-                        // Some scroll logic for messages, or ignore...
-                        match motion {
-                            Motion::Up => {
-                                self.scroll_offset =
-                                    self.scroll_offset.saturating_sub(1);
-                            }
-                            Motion::Down => {
-                                self.scroll_offset =
-                                    (self.scroll_offset + 1).min(height);
-                            }
-                            Motion::StartFile => {
-                                self.scroll_offset = 0;
-                            }
-                            Motion::EndFile => {
-                                self.scroll_offset = height;
-                            }
-                            _ => {}
+                    match motion {
+                        Motion::Up => {
+                            // self.scroll_offset =
+                            //     self.scroll_offset.saturating_sub(1);
                         }
-                    } else {
-                        match motion {
-                            Motion::Left => {
-                                if self.cursor_pos > 0 {
-                                    self.cursor_pos -= 1;
+                        Motion::Down => {
+                            // self.scroll_offset =
+                            //     (self.scroll_offset + 1).min(height);
+                        }
+                        Motion::Left => {
+                            self.cursor_pos = self.cursor_pos.saturating_sub(1);
+                        }
+                        Motion::Right => {
+                            self.cursor_pos =
+                                (self.cursor_pos + 1).min(self.message_len);
+                        }
+                        Motion::ForwardWord => {
+                            self.cursor_pos =
+                                find_next_word_boundary(text, self.cursor_pos);
+                        }
+                        Motion::ForwardBigWord => {
+                            self.cursor_pos = find_next_big_word_boundary(
+                                text,
+                                self.cursor_pos,
+                            );
+                        }
+                        Motion::BackwardWord => {
+                            self.cursor_pos =
+                                find_prev_word_boundary(text, self.cursor_pos);
+                        }
+                        Motion::BackwardBigWord => {
+                            self.cursor_pos = find_prev_big_word_boundary(
+                                text,
+                                self.cursor_pos,
+                            );
+                        }
+                        Motion::EndWord => {
+                            self.cursor_pos =
+                                find_word_end(text, self.cursor_pos);
+                        }
+                        Motion::StartFile => {
+                            self.cursor_pos = 0;
+                        }
+                        Motion::EndFile => {
+                            self.cursor_pos = text.len();
+                        }
+                        Motion::FindCharForward(ch) => {
+                            if self.cursor_pos < text.len() {
+                                // look in substring after the cursor
+                                if let Some(rel_pos) =
+                                    text[self.cursor_pos + 1..].find(ch)
+                                {
+                                    self.cursor_pos =
+                                        self.cursor_pos + 1 + rel_pos;
                                 }
                             }
-                            Motion::Right => {
-                                if self.cursor_pos < text.len() {
-                                    self.cursor_pos += 1;
+                        }
+                        Motion::FindCharBackward(ch) => {
+                            if self.cursor_pos > 0 {
+                                if let Some(found_pos) =
+                                    text[..self.cursor_pos].rfind(ch)
+                                {
+                                    self.cursor_pos = found_pos;
                                 }
                             }
-                            Motion::Up => {
-                                // not implemented for text (e.g. multiline)
-                            }
-                            Motion::Down => {
-                                // not implemented for text
-                            }
-                            Motion::ForwardWord => {
-                                self.cursor_pos = find_next_word_boundary(
-                                    text,
-                                    self.cursor_pos,
-                                );
-                            }
-                            Motion::ForwardBigWord => {
-                                self.cursor_pos = find_next_big_word_boundary(
-                                    text,
-                                    self.cursor_pos,
-                                );
-                            }
-                            Motion::BackwardWord => {
-                                self.cursor_pos = find_prev_word_boundary(
-                                    text,
-                                    self.cursor_pos,
-                                );
-                            }
-                            Motion::BackwardBigWord => {
-                                self.cursor_pos = find_prev_big_word_boundary(
-                                    text,
-                                    self.cursor_pos,
-                                );
-                            }
-                            Motion::EndWord => {
-                                self.cursor_pos =
-                                    find_word_end(text, self.cursor_pos);
-                            }
-                            Motion::StartFile => {
-                                self.cursor_pos = 0;
-                            }
-                            Motion::EndFile => {
-                                self.cursor_pos = text.len();
-                            }
-                            Motion::FindCharForward(ch) => {
-                                if self.cursor_pos < text.len() {
-                                    // look in substring after the cursor
-                                    if let Some(rel_pos) =
-                                        text[self.cursor_pos + 1..].find(ch)
-                                    {
+                        }
+                        Motion::TillCharForward(ch) => {
+                            if self.cursor_pos < text.len() {
+                                if let Some(rel_pos) =
+                                    text[self.cursor_pos + 1..].find(ch)
+                                {
+                                    if rel_pos > 0 {
                                         self.cursor_pos =
-                                            self.cursor_pos + 1 + rel_pos;
+                                            self.cursor_pos + 1 + rel_pos - 1;
                                     }
                                 }
                             }
-                            Motion::FindCharBackward(ch) => {
-                                if self.cursor_pos > 0 {
-                                    if let Some(found_pos) =
-                                        text[..self.cursor_pos].rfind(ch)
-                                    {
-                                        self.cursor_pos = found_pos;
-                                    }
-                                }
-                            }
-                            Motion::TillCharForward(ch) => {
-                                if self.cursor_pos < text.len() {
-                                    if let Some(rel_pos) =
-                                        text[self.cursor_pos + 1..].find(ch)
-                                    {
-                                        if rel_pos > 0 {
-                                            self.cursor_pos =
-                                                self.cursor_pos + 1 + rel_pos
-                                                    - 1;
-                                        }
-                                    }
-                                }
-                            }
-                            Motion::TillCharBackward(ch) => {
-                                if self.cursor_pos > 0 {
-                                    if let Some(found_pos) =
-                                        text[..self.cursor_pos].rfind(ch)
-                                    {
-                                        self.cursor_pos = found_pos + 1;
-                                    }
+                        }
+                        Motion::TillCharBackward(ch) => {
+                            if self.cursor_pos > 0 {
+                                if let Some(found_pos) =
+                                    text[..self.cursor_pos].rfind(ch)
+                                {
+                                    self.cursor_pos = found_pos + 1;
                                 }
                             }
                         }
@@ -497,7 +468,6 @@ impl EditingContext {
             // -----------------------------
             Command::MultiCommand(multi_cmd) => {
                 if self.focus == Focus::Input {
-                    // Normal input editing
                     match multi_cmd {
                         MultiCommand::Delete(noun) => {
                             delete_helper(
@@ -510,14 +480,6 @@ impl EditingContext {
                         MultiCommand::Change(noun) => {
                             change_helper(
                                 &mut self.mode,
-                                &mut self.cursor_pos,
-                                text,
-                                clipboard,
-                                noun,
-                            );
-                        }
-                        MultiCommand::Yank(noun) => {
-                            yank_helper(
                                 &mut self.cursor_pos,
                                 text,
                                 clipboard,
@@ -539,7 +501,11 @@ impl EditingContext {
                                 text.insert(self.cursor_pos, c);
                             }
                         }
+                        _ => {} // Yank works for both
                     }
+                }
+                if let MultiCommand::Yank(noun) = multi_cmd {
+                    yank_helper(&mut self.cursor_pos, text, clipboard, noun);
                 }
             }
         }
