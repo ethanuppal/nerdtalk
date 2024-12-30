@@ -1,7 +1,7 @@
 use std::{env, io, sync::Arc};
 
 use client_tui::app::App;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
