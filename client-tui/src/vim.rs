@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use copypasta::ClipboardProvider;
+use copypasta::{ClipboardContext, ClipboardProvider};
 use regex::Regex;
 
 use crate::app::Focus;
@@ -27,6 +27,10 @@ pub enum Motion {
     EndWord,
     StartFile,
     EndFile,
+    FindCharForward(char),
+    FindCharBackward(char),
+    TillCharForward(char),
+    TillCharBackward(char),
 }
 
 /// An [`Edit`] indicates a command which edits the text or sets up for an edit.
@@ -50,6 +54,7 @@ pub enum Noun {
     Sentence,
     Parentheses,
     Braces,
+    Brackets,
     Angles,
     Apostrophes,
     Quotes,
@@ -118,23 +123,60 @@ impl CommandBuffer {
         if self.is_empty() {
             return None;
         }
-
         self.chars.make_contiguous();
 
-        if let Some(single_command) = self.parse_single_command() {
-            self.advance(1);
-            Some(Command::SingleCommand(single_command))
-        } else if let Some((multi_command, length)) = self.parse_multi_command()
-        {
+        // Attempt single-command parse (which might consume 1 or 2 chars)
+        if let Some((single_command, length)) = self.parse_single_command() {
             self.advance(length);
-            Some(Command::MultiCommand(multi_command))
-        } else {
-            None
+            return Some(Command::SingleCommand(single_command));
         }
+
+        // Otherwise attempt multi-command parse (operators + noun)
+        if let Some((multi_command, length)) = self.parse_multi_command() {
+            self.advance(length);
+            return Some(Command::MultiCommand(multi_command));
+        }
+
+        None
     }
 
-    fn parse_single_command(&mut self) -> Option<SingleCommand> {
-        match self.current() {
+    /// Attempt to parse a SingleCommand. Return `(command, length_consumed)`.
+    fn parse_single_command(&mut self) -> Option<(SingleCommand, usize)> {
+        let c = self.current();
+
+        match c {
+            'f' => {
+                let ch = self.peek(1)?;
+                return Some((
+                    SingleCommand::Motion(Motion::FindCharForward(ch)),
+                    2,
+                ));
+            }
+            'F' => {
+                let ch = self.peek(1)?;
+                return Some((
+                    SingleCommand::Motion(Motion::FindCharBackward(ch)),
+                    2,
+                ));
+            }
+            't' => {
+                let ch = self.peek(1)?;
+                return Some((
+                    SingleCommand::Motion(Motion::TillCharForward(ch)),
+                    2,
+                ));
+            }
+            'T' => {
+                let ch = self.peek(1)?;
+                return Some((
+                    SingleCommand::Motion(Motion::TillCharBackward(ch)),
+                    2,
+                ));
+            }
+            _ => {}
+        }
+
+        let cmd = match c {
             'i' => Some(SingleCommand::Edit(Edit::Insert)),
             'I' => Some(SingleCommand::Edit(Edit::InsertSOL)),
             'a' => Some(SingleCommand::Edit(Edit::Append)),
@@ -154,13 +196,18 @@ impl CommandBuffer {
             '0' => Some(SingleCommand::Motion(Motion::StartFile)),
             '$' => Some(SingleCommand::Motion(Motion::EndFile)),
             _ => None,
-        }
+        };
+        cmd.map(|sc| (sc, 1))
     }
 
     fn parse_multi_command(&mut self) -> Option<(MultiCommand, usize)> {
         match self.current() {
-            'C' => Some((MultiCommand::ChangeEOL, 2)),
-            'r' | 'R' => Some((MultiCommand::Replace(self.peek(1)?), 2)),
+            'C' => {
+                Some((MultiCommand::ChangeEOL, 2))
+            }
+            'r' | 'R' => {
+                Some((MultiCommand::Replace(self.peek(1)?), 2))
+            }
             _ => self.parse_multi_command_with_noun(),
         }
     }
@@ -178,7 +225,10 @@ impl CommandBuffer {
     }
 
     fn peek_noun(&self) -> Option<(Noun, usize)> {
-        match self.peek(1)? {
+        // The first char after the operator
+        let c1 = self.peek(1)?;
+
+        match c1 {
             'w' => Some((Noun::Motion(Motion::ForwardWord), 1)),
             'W' => Some((Noun::Motion(Motion::ForwardBigWord), 1)),
             'b' => Some((Noun::Motion(Motion::BackwardWord), 1)),
@@ -187,14 +237,28 @@ impl CommandBuffer {
             'l' => Some((Noun::Motion(Motion::Right), 1)),
             'j' => Some((Noun::Motion(Motion::Down), 1)),
             'k' => Some((Noun::Motion(Motion::Up), 1)),
-
-            // Possibly "iw", "iW", etc.
+            'f' => {
+                let ch = self.peek(2)?;
+                Some((Noun::Motion(Motion::FindCharForward(ch)), 2))
+            }
+            'F' => {
+                let ch = self.peek(2)?;
+                Some((Noun::Motion(Motion::FindCharBackward(ch)), 2))
+            }
+            't' => {
+                let ch = self.peek(2)?;
+                Some((Noun::Motion(Motion::TillCharForward(ch)), 2))
+            }
+            'T' => {
+                let ch = self.peek(2)?;
+                Some((Noun::Motion(Motion::TillCharBackward(ch)), 2))
+            }
             'i' => match self.peek(2)? {
                 'w' => Some((Noun::InnerWord, 2)),
                 'W' => Some((Noun::InnerBigWord, 2)),
                 's' => Some((Noun::Sentence, 2)),
                 '(' | ')' => Some((Noun::Parentheses, 2)),
-                '[' | ']' => Some((Noun::Braces, 2)),
+                '[' | ']' => Some((Noun::Brackets, 2)),
                 '{' | '}' => Some((Noun::Braces, 2)),
                 '<' | '>' => Some((Noun::Angles, 2)),
                 '\'' => Some((Noun::Apostrophes, 2)),
@@ -245,13 +309,12 @@ impl Default for EditingContext {
 }
 
 impl EditingContext {
-    /// Applies a [`Command`]s to `text` (rendered at a window height of
-    /// `height`) the current editor state, using `clipboard` for yanking
-    /// and pasting
+    /// Applies a [`Command`] to `text` the current editor state, using `clipboard`
+    /// for yanking/pasting, with a window height of `height`.
     pub fn apply_command(
         &mut self,
         text: &mut String,
-        clipboard: &mut copypasta::ClipboardContext,
+        clipboard: &mut ClipboardContext,
         height: u16,
         command: Command,
     ) {
@@ -311,76 +374,124 @@ impl EditingContext {
                 }
 
                 SingleCommand::Motion(motion) => {
-                    match motion {
-                        Motion::Left => {
-                            if self.focus == Focus::Messages {
-                                // Not implemented. Could do horizontal scroll in
-                                // messages
-                            } else if self.cursor_pos > 0 {
-                                self.cursor_pos -= 1;
-                            }
-                        }
-                        Motion::Right => {
-                            if self.focus == Focus::Messages {
-                                // Not implemented
-                            } else if self.cursor_pos < text.len() {
-                                self.cursor_pos += 1;
-                            }
-                        }
-                        Motion::Up => {
-                            if self.focus == Focus::Messages {
+                    if self.focus == Focus::Messages {
+                        // Some scroll logic for messages, or ignore...
+                        match motion {
+                            Motion::Up => {
                                 self.scroll_offset =
                                     self.scroll_offset.saturating_sub(1);
                             }
-                        }
-                        Motion::Down => {
-                            if self.focus == Focus::Messages {
+                            Motion::Down => {
                                 self.scroll_offset =
                                     (self.scroll_offset + 1).min(height);
                             }
-                        }
-                        Motion::ForwardWord => {
-                            self.cursor_pos =
-                                find_next_word_boundary(text, self.cursor_pos);
-                        }
-                        Motion::ForwardBigWord => {
-                            self.cursor_pos = find_next_big_word_boundary(
-                                text,
-                                self.cursor_pos,
-                            );
-                        }
-                        Motion::BackwardWord => {
-                            self.cursor_pos =
-                                find_prev_word_boundary(text, self.cursor_pos);
-                        }
-                        Motion::BackwardBigWord => {
-                            self.cursor_pos = find_prev_big_word_boundary(
-                                text,
-                                self.cursor_pos,
-                            );
-                        }
-                        Motion::EndWord => {
-                            self.cursor_pos =
-                                find_word_end(text, self.cursor_pos);
-                        }
-
-                        Motion::StartFile => {
-                            if self.focus == Focus::Messages {
+                            Motion::StartFile => {
                                 self.scroll_offset = 0;
-                            } else {
+                            }
+                            Motion::EndFile => {
+                                self.scroll_offset = height;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        match motion {
+                            Motion::Left => {
+                                if self.cursor_pos > 0 {
+                                    self.cursor_pos -= 1;
+                                }
+                            }
+                            Motion::Right => {
+                                if self.cursor_pos < text.len() {
+                                    self.cursor_pos += 1;
+                                }
+                            }
+                            Motion::Up => {
+                                // not implemented for text (e.g. multiline)
+                            }
+                            Motion::Down => {
+                                // not implemented for text
+                            }
+                            Motion::ForwardWord => {
+                                self.cursor_pos = find_next_word_boundary(
+                                    text,
+                                    self.cursor_pos,
+                                );
+                            }
+                            Motion::ForwardBigWord => {
+                                self.cursor_pos = find_next_big_word_boundary(
+                                    text,
+                                    self.cursor_pos,
+                                );
+                            }
+                            Motion::BackwardWord => {
+                                self.cursor_pos = find_prev_word_boundary(
+                                    text,
+                                    self.cursor_pos,
+                                );
+                            }
+                            Motion::BackwardBigWord => {
+                                self.cursor_pos = find_prev_big_word_boundary(
+                                    text,
+                                    self.cursor_pos,
+                                );
+                            }
+                            Motion::EndWord => {
+                                self.cursor_pos =
+                                    find_word_end(text, self.cursor_pos);
+                            }
+                            Motion::StartFile => {
                                 self.cursor_pos = 0;
                             }
-                        }
-                        Motion::EndFile => {
-                            if self.focus == Focus::Messages {
-                                self.scroll_offset = height;
-                            } else {
+                            Motion::EndFile => {
                                 self.cursor_pos = text.len();
+                            }
+                            Motion::FindCharForward(ch) => {
+                                if self.cursor_pos < text.len() {
+                                    // look in substring after the cursor
+                                    if let Some(rel_pos) =
+                                        text[self.cursor_pos + 1..].find(ch)
+                                    {
+                                        self.cursor_pos =
+                                            self.cursor_pos + 1 + rel_pos;
+                                    }
+                                }
+                            }
+                            Motion::FindCharBackward(ch) => {
+                                if self.cursor_pos > 0 {
+                                    if let Some(found_pos) =
+                                        text[..self.cursor_pos].rfind(ch)
+                                    {
+                                        self.cursor_pos = found_pos;
+                                    }
+                                }
+                            }
+                            Motion::TillCharForward(ch) => {
+                                if self.cursor_pos < text.len() {
+                                    if let Some(rel_pos) =
+                                        text[self.cursor_pos + 1..].find(ch)
+                                    {
+                                        if rel_pos > 0 {
+                                            self.cursor_pos =
+                                                self.cursor_pos + 1 + rel_pos
+                                                    - 1;
+                                        }
+                                    }
+                                }
+                            }
+                            Motion::TillCharBackward(ch) => {
+                                if self.cursor_pos > 0 {
+                                    if let Some(found_pos) =
+                                        text[..self.cursor_pos].rfind(ch)
+                                    {
+                                        self.cursor_pos = found_pos + 1;
+                                    }
+                                }
                             }
                         }
                     }
                 }
             },
+
             // -----------------------------
             // MultiCommand actions
             // -----------------------------
@@ -441,7 +552,7 @@ impl EditingContext {
 fn delete_helper(
     cursor_pos: &mut usize,
     text: &mut String,
-    clipboard: &mut copypasta::ClipboardContext,
+    clipboard: &mut ClipboardContext,
     noun: Noun,
 ) {
     match noun {
@@ -477,6 +588,55 @@ fn delete_helper(
                     text.drain(start_pos..*cursor_pos).collect::<String>();
                 let _ = clipboard.set_contents(removed);
                 *cursor_pos = start_pos;
+            }
+        }
+        Noun::Motion(Motion::FindCharForward(ch)) => {
+            if *cursor_pos < text.len() {
+                if let Some(rel_pos) = text[*cursor_pos + 1..].find(ch) {
+                    let match_pos = *cursor_pos + 1 + rel_pos;
+                    let end = match_pos + 1;
+                    if end <= text.len() {
+                        let removed =
+                            text.drain(*cursor_pos..end).collect::<String>();
+                        let _ = clipboard.set_contents(removed);
+                    }
+                }
+            }
+        }
+        Noun::Motion(Motion::FindCharBackward(ch)) => {
+            if *cursor_pos > 0 {
+                if let Some(found_pos) = text[..*cursor_pos].rfind(ch) {
+                    let removed =
+                        text.drain(found_pos..*cursor_pos).collect::<String>();
+                    let _ = clipboard.set_contents(removed);
+                    *cursor_pos = found_pos;
+                }
+            }
+        }
+        Noun::Motion(Motion::TillCharForward(ch)) => {
+            if *cursor_pos < text.len() {
+                if let Some(rel_pos) = text[*cursor_pos + 1..].find(ch) {
+                    let match_pos = *cursor_pos + 1 + rel_pos;
+                    if match_pos > *cursor_pos {
+                        let removed = text
+                            .drain(*cursor_pos..match_pos)
+                            .collect::<String>();
+                        let _ = clipboard.set_contents(removed);
+                    }
+                }
+            }
+        }
+        Noun::Motion(Motion::TillCharBackward(ch)) => {
+            if *cursor_pos > 0 {
+                if let Some(found_pos) = text[..*cursor_pos].rfind(ch) {
+                    let start = found_pos + 1;
+                    if start < *cursor_pos {
+                        let removed =
+                            text.drain(start..*cursor_pos).collect::<String>();
+                        let _ = clipboard.set_contents(removed);
+                        *cursor_pos = start;
+                    }
+                }
             }
         }
         Noun::InnerWord => {
@@ -507,7 +667,7 @@ fn change_helper(
     mode: &mut Mode,
     cursor_pos: &mut usize,
     text: &mut String,
-    clipboard: &mut copypasta::ClipboardContext,
+    clipboard: &mut ClipboardContext,
     noun: Noun,
 ) {
     delete_helper(cursor_pos, text, clipboard, noun);
@@ -517,7 +677,7 @@ fn change_helper(
 fn yank_helper(
     cursor_pos: &mut usize,
     text: &str,
-    clipboard: &mut copypasta::ClipboardContext,
+    clipboard: &mut ClipboardContext,
     noun: Noun,
 ) {
     match noun {
@@ -549,6 +709,47 @@ fn yank_helper(
                 let _ = clipboard.set_contents(selection.to_string());
             }
         }
+        Noun::Motion(Motion::FindCharForward(ch)) => {
+            if *cursor_pos < text.len() {
+                if let Some(rel_pos) = text[*cursor_pos + 1..].find(ch) {
+                    let match_pos = *cursor_pos + 1 + rel_pos;
+                    let end = match_pos + 1; // 'f' includes the found char
+                    if end <= text.len() {
+                        let selection = &text[*cursor_pos..end];
+                        let _ = clipboard.set_contents(selection.to_string());
+                    }
+                }
+            }
+        }
+        Noun::Motion(Motion::FindCharBackward(ch)) => {
+            if *cursor_pos > 0 {
+                if let Some(found_pos) = text[..*cursor_pos].rfind(ch) {
+                    let selection = &text[found_pos..*cursor_pos];
+                    let _ = clipboard.set_contents(selection.to_string());
+                }
+            }
+        }
+        Noun::Motion(Motion::TillCharForward(ch)) => {
+            if *cursor_pos < text.len() {
+                if let Some(rel_pos) = text[*cursor_pos + 1..].find(ch) {
+                    let match_pos = *cursor_pos + 1 + rel_pos;
+                    // 't' excludes the found char
+                    let selection = &text[*cursor_pos..match_pos];
+                    let _ = clipboard.set_contents(selection.to_string());
+                }
+            }
+        }
+        Noun::Motion(Motion::TillCharBackward(ch)) => {
+            if *cursor_pos > 0 {
+                if let Some(found_pos) = text[..*cursor_pos].rfind(ch) {
+                    let start = found_pos + 1;
+                    if start < *cursor_pos {
+                        let selection = &text[start..*cursor_pos];
+                        let _ = clipboard.set_contents(selection.to_string());
+                    }
+                }
+            }
+        }
         Noun::InnerWord => {
             let start_pos = find_prev_word_boundary(text, *cursor_pos);
             let end_pos = find_next_word_boundary(text, *cursor_pos);
@@ -569,7 +770,9 @@ fn yank_helper(
     }
 }
 
-// --------------------- Word boundary helpers -----------------------
+// ------------------------------------------
+// Helpers for word objects and boundaries
+// ------------------------------------------
 fn word_boundary(
     text: &str,
     start_index: usize,
@@ -641,11 +844,13 @@ fn find_word_end(text: &str, start_index: usize) -> usize {
             ms = mat.end();
         }
         if start_index + ms - 2 == start_index {
-            // let (new_index, at_end) = (1 as usize).overflowing_add(2);
-
-            start_index + matches.get(1).unwrap_or(mat).end() - 2
+            if matches.len() > 1 {
+                return start_index + matches[1].end() - 2;
+            } else {
+                return text.len();
+            }
         } else {
-            start_index + ms - 2
+            return start_index + ms - 2;
         }
     } else {
         text.len()

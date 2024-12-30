@@ -194,7 +194,15 @@ impl App {
         if self.editing_context.focus == Focus::Messages {
             let relative_y = (self.messages_cursor as u16)
                 .saturating_sub(self.editing_context.scroll_offset);
-            let cursor_x = message_chunks[0].x + 1;
+            let relative_x = if self.editing_context.cursor_pos
+                > messages[self.messages_cursor].len()
+            {
+                (messages[self.messages_cursor].len().saturating_sub(1)) as u16
+            } else {
+                self.editing_context.cursor_pos as u16
+            };
+
+            let cursor_x = message_chunks[0].x + 1 + relative_x;
             let cursor_y = message_chunks[0].y + 1 + relative_y;
             frame.set_cursor_position((cursor_x, cursor_y));
         }
@@ -500,7 +508,6 @@ impl App {
                 (self.editing_context.cursor_pos, anchor)
             };
             if start < end && end <= self.input.len() {
-                // Yank first, if you want that behavior:
                 let selected = &self.input[start..end];
                 let _ = self.clipboard.set_contents(selected.to_string());
 
