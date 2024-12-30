@@ -1,33 +1,9 @@
 use std::{env, io, sync::Arc};
 
-use copypasta::{ClipboardContext, ClipboardProvider};
-use crossterm::{
-    cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
-    event::{
-        self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent,
-        MouseEventKind,
-    },
-    ExecutableCommand,
-};
-use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    symbols::border,
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
-    DefaultTerminal, Frame,
-};
-
-mod vim;
-use tokio::sync::{mpsc, RwLock};
-use vim::{Mode, VimCommand};
-
-/// Indicates which part of the UI is currently in “focus.”
-#[derive(Debug, PartialEq)]
-pub enum Focus {
-    Messages,
-    Input,
-}
+pub mod app;
+pub mod vim;
+use crate::app::App;
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
@@ -61,7 +37,7 @@ async fn main() -> Result<(), io::Error> {
         }
     });
 
-    crossterm::terminal::enable_raw_mode()?; // Ensure raw mode is enabled for cursor shape changes
+    crossterm::terminal::enable_raw_mode()?;
     let mut terminal = ratatui::init();
 
     let app_result = app.run(&mut terminal, app_messages).await;

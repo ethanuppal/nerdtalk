@@ -1,6 +1,6 @@
 use std::{io, sync::Arc, time};
 
-use copypasta::ClipboardContext;
+use copypasta::{ClipboardContext, ClipboardProvider};
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
     event::{
@@ -36,6 +36,7 @@ pub struct App {
     command_buffer: vim::CommandBuffer,
     clipboard: ClipboardContext,
     tx: mpsc::UnboundedSender<comms::ClientMessage>,
+    visual_anchor: Option<usize>,
 }
 
 impl App {
@@ -51,6 +52,7 @@ impl App {
                 copypasta::ClipboardContext::new().unwrap()
             }),
             tx,
+            visual_anchor: None,
         }
     }
 
@@ -204,15 +206,25 @@ impl App {
         area: Rect,
         available_width_for_text: u16,
     ) {
+        let displayed_text =
+            if let vim::Mode::Visual = self.editing_context.mode {
+                render_input_with_selection(
+                    &self.input,
+                    self.visual_anchor,
+                    self.editing_context.cursor_pos,
+                )
+            } else {
+                Text::from(Span::raw(&self.input))
+            };
+
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(1), Constraint::Length(5)])
             .split(area);
 
-        let input_paragraph =
-            Paragraph::new(Text::from(Span::raw(&self.input)))
-                .block(Block::default().borders(Borders::ALL).title(" Input "))
-                .wrap(Wrap { trim: false });
+        let input_paragraph = Paragraph::new(Text::from(displayed_text))
+            .block(Block::default().borders(Borders::ALL).title(" Input "))
+            .wrap(Wrap { trim: false });
 
         let mode_span = self.mode_indicator_span();
         let mode_paragraph = Paragraph::new(mode_span)
@@ -266,6 +278,9 @@ impl App {
             vim::Mode::Insert => {
                 self.handle_key_event_insert_mode(messages, key_event)
             }
+            vim::Mode::Visual => {
+                self.handle_key_event_visual_mode(messages, key_event)
+            }
         }
     }
 
@@ -306,6 +321,12 @@ impl App {
                 self.command_buffer.clear();
                 return;
             }
+            KeyCode::Char('v') => {
+                self.editing_context.mode = vim::Mode::Visual;
+                self.visual_anchor = Some(self.editing_context.cursor_pos);
+                self.command_buffer.clear();
+                return;
+            }
             // Use the Vim engine for the rest
             KeyCode::Char(c) => {
                 self.command_buffer.push(c);
@@ -314,7 +335,6 @@ impl App {
         };
 
         if let Some(command) = self.command_buffer.parse() {
-            // Now parse the normal-mode buffer
             self.editing_context.apply_command(
                 &mut self.input,
                 &mut self.clipboard,
@@ -353,6 +373,49 @@ impl App {
                 self.input.insert(self.editing_context.cursor_pos, c);
                 self.editing_context.cursor_pos += 1;
             }
+            _ => {}
+        }
+    }
+
+    fn handle_key_event_visual_mode(
+        &mut self,
+        messages: &[String],
+        key_event: KeyEvent,
+    ) {
+        match key_event.code {
+            KeyCode::Esc | KeyCode::Char('v') => {
+                self.editing_context.mode = vim::Mode::Normal;
+                self.visual_anchor = None;
+            }
+            KeyCode::Left => {
+                self.editing_context.cursor_pos =
+                    self.editing_context.cursor_pos.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                self.editing_context.cursor_pos =
+                    (self.editing_context.cursor_pos + 1).min(self.input.len());
+            }
+            KeyCode::Char('h') => {
+                self.editing_context.cursor_pos =
+                    self.editing_context.cursor_pos.saturating_sub(1);
+            }
+            KeyCode::Char('l') => {
+                self.editing_context.cursor_pos =
+                    (self.editing_context.cursor_pos + 1).min(self.input.len());
+            }
+
+            KeyCode::Char('y') => {
+                self.yank_visual_selection();
+                self.editing_context.mode = vim::Mode::Normal;
+                self.visual_anchor = None;
+            }
+
+            KeyCode::Char('d') => {
+                self.delete_visual_selection();
+                self.editing_context.mode = vim::Mode::Normal;
+                self.visual_anchor = None;
+            }
+
             _ => {}
         }
     }
@@ -415,6 +478,38 @@ impl App {
                 .min(total_lines.saturating_sub(1));
     }
 
+    fn yank_visual_selection(&mut self) {
+        if let Some(anchor) = self.visual_anchor {
+            let (start, end) = if anchor <= self.editing_context.cursor_pos {
+                (anchor, self.editing_context.cursor_pos)
+            } else {
+                (self.editing_context.cursor_pos, anchor)
+            };
+            if start < end && end <= self.input.len() {
+                let selected = &self.input[start..end];
+                let _ = self.clipboard.set_contents(selected.to_string());
+            }
+        }
+    }
+
+    fn delete_visual_selection(&mut self) {
+        if let Some(anchor) = self.visual_anchor {
+            let (start, end) = if anchor <= self.editing_context.cursor_pos {
+                (anchor, self.editing_context.cursor_pos)
+            } else {
+                (self.editing_context.cursor_pos, anchor)
+            };
+            if start < end && end <= self.input.len() {
+                // Yank first, if you want that behavior:
+                let selected = &self.input[start..end];
+                let _ = self.clipboard.set_contents(selected.to_string());
+
+                self.input.drain(start..end);
+                self.editing_context.cursor_pos = start;
+            }
+        }
+    }
+
     fn update_cursor_shape(
         &self,
         terminal: &mut DefaultTerminal,
@@ -432,6 +527,12 @@ impl App {
                     .backend_mut()
                     .execute(SetCursorStyle::BlinkingBar)?;
             }
+            vim::Mode::Visual => {
+                terminal.backend_mut().execute(DisableBlinking)?;
+                terminal
+                    .backend_mut()
+                    .execute(SetCursorStyle::SteadyUnderScore)?;
+            }
         }
         Ok(())
     }
@@ -445,23 +546,60 @@ impl App {
                         Style::default().fg(Color::Blue),
                     )
                 } else {
-                    let current_command_buffer = self.command_buffer.as_slice();
-                    let display_str = String::from_iter(
-                        &current_command_buffer
-                            [0..current_command_buffer.len().min(4)],
-                    );
+                    let mut display_str =
+                        self.command_buffer.current().to_string();
+                    if let Some(c) = self.command_buffer.peek(1) {
+                        display_str.push(c);
+                    }
                     let padded = format!("{:<4}", display_str);
 
-                    Span::styled(
-                        padded.to_string(),
-                        Style::default().fg(Color::Blue),
-                    )
+                    Span::styled(padded, Style::default().fg(Color::Blue))
                 }
             }
             vim::Mode::Insert => Span::styled(
                 " I ".to_string(),
                 Style::default().fg(Color::Green),
             ),
+            vim::Mode::Visual => Span::styled(
+                " V ".to_string(),
+                Style::default().fg(Color::Magenta),
+            ),
         }
     }
+}
+
+/// A small helper function to render the input text with a highlighted region
+/// (for Visual mode) between visual_anchor and cursor_pos.
+fn render_input_with_selection(
+    text: &str,
+    visual_anchor: Option<usize>,
+    cursor_pos: usize,
+) -> Text<'_> {
+    if visual_anchor.is_none() {
+        return Text::from(Span::raw(text));
+    }
+    let anchor = visual_anchor.unwrap();
+    let (start, end) = if anchor <= cursor_pos {
+        (anchor, cursor_pos)
+    } else {
+        (cursor_pos, anchor)
+    };
+
+    // Safety checks
+    if start >= end || end > text.len() {
+        return Text::from(Span::raw(text));
+    }
+
+    let before = &text[..start];
+    let selected = &text[start..end];
+    let after = &text[end..];
+
+    Text::from(Line::from(vec![
+        Span::raw(before),
+        Span::styled(
+            selected,
+            Style::default().bg(Color::LightBlue).fg(Color::Black),
+        ),
+        Span::raw(after),
+    ]))
 }
