@@ -10,7 +10,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.0"
+version = "1.0.0"
 description = "A chat client and server for nerdserver"
 authors = ["Ethan Uppal, Haadi Khan, Jeffrey Huang"]
 rust-version = "1.79"
