@@ -9,21 +9,19 @@ First, you'll want to generate local certificates
 
 ```sh
 # mark scripts as executable
-chmod u+x ./gen_cert.sh \
-    && chmod u+x ./local_tui_client.sh \
-    && chmod u+x ./local_server.sh
+chmod u+x scripts/*.sh 
 
 # generate local testing certificates
-./gen_cert.sh
+./scripts/gen_cert.sh
 
 # in a new shell, run the server
-./local_server.sh
+./scripts/local_server.sh
 
 # in the current shell, run the client
-./local_tui_client.sh
+./scripts/local_tui_client.sh
 
 # in yet another shell, run another client
-./local_tui_client.sh
+./scripts/local_tui_client.sh
 ```
 You can now talk to each other over the TUI interface!
 
