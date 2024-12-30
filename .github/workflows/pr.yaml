@@ -17,3 +17,18 @@ jobs:
           requireScope: true
           ignoreLabels: |
             autorelease: pending
+  # https://stackoverflow.com/questions/70929443/how-to-create-an-automatic-github-comment-based-on-the-pull-request-title
+  comment:
+    runs-on: ubuntu-latest
+    if: "startsWith(github.event.pull_request.title, 'perf')"
+    steps:
+      - uses: actions/github-script@v5
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'It looks like you\'ve made a PR with performance improvements. Make sure you add benchmarks to prove that your changes are actually worthwhile.'
+            })
