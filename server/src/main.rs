@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use comms::{AppendChatEntry, Codable};
+use comms::Codable;
 use futures_util::{SinkExt, StreamExt};
 use log::info;
 use tokio::{
@@ -30,11 +30,11 @@ struct FakeChatLog {
 }
 
 impl FakeChatLog {
-    fn append(&mut self, append: AppendChatEntry) -> chat::Entry {
+    fn post(&mut self, username: String, content: String) -> chat::Entry {
         let entry = chat::Entry::new_timestamped_now(
             self.lmao.len(),
-            append.username,
-            chat::Content::Original(chat::MessageText(append.content)),
+            username,
+            chat::Content::Original(chat::MessageText(content)),
         );
         self.lmao.push(entry.clone());
         entry
@@ -153,8 +153,8 @@ async fn main() -> Result<(), Error> {
     while let Some((sender, message)) = message_rx.recv().await {
         println!("server processing message: {:?}", message);
         match message {
-            comms::ClientMessage::Append(append_chat_entry) => {
-                let entry = fake_chat_log.append(append_chat_entry);
+            comms::ClientMessage::Post { username, content } => {
+                let entry = fake_chat_log.post(username, content);
                 for (_, session) in sessions.read().await.iter() {
                     session.send(comms::ServerMessage::NewEntry(entry.clone()));
                 }
