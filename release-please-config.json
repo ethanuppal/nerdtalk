@@ -17,6 +17,7 @@
     }
   },
   "pull-request-title-pattern": "chore: Release ${version}",
+  "release-as": "0.1.0",
   "changelog-sections": [
     {
       "type": "feat",
