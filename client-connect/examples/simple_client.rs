@@ -37,6 +37,9 @@ async fn main() -> ClientConnectionResult<()> {
                         chat_log_entry.text_content()
                     );
                 }
+                comms::ServerMessage::EntryRange(entries) => {
+                    println!("got entry range: {:?}", entries);
+                }
             }
         }
     });

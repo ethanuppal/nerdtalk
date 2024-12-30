@@ -28,6 +28,7 @@ async fn main() -> Result<(), io::Error> {
                         break;
                     }
                 },
+                comms::ServerMessage::EntryRange(_entries) => todo!(),
             }
         }
     });
