@@ -241,10 +241,9 @@ async fn new_client_connection(
                                     "server got message: {:?}",
                                     client_request
                                 );
-                                message_tx.send((
-                                    client_address.clone(),
-                                    client_request,
-                                ));
+                                message_tx
+                                    .send((client_address, client_request))
+                                    .expect("todo");
                             }
                             Message::Close(close_frame) => {
                                 write_websocket_thread_tx
