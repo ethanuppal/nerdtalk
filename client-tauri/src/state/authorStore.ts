@@ -18,12 +18,6 @@ export interface User {
   status: UserStatus
 }
 
-interface UserOptions {
-  name?: string
-  avatarURL?: string
-  status?: UserStatus
-}
-
 export type UserRef = number
 
 export class UserStore {
@@ -49,7 +43,7 @@ export class UserStore {
     return this.users[userRef]
   }
 
-  modifyUser(userRef: UserRef, userAttrs: UserOptions) {
+  modifyUser(userRef: UserRef, userAttrs: Partial<User>) {
     this.users[userRef] = { ...this.users[userRef], ...userAttrs }
   }
 }
