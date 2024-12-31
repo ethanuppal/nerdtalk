@@ -44,7 +44,6 @@ export class MessageLogStore {
   }
 
   appendMessage(message: Message) {
-    // TODO: Add filtering function
     if (message.body.length == 0) return
 
     this.runningLog.push(message)
