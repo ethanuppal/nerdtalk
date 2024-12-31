@@ -42,11 +42,9 @@ async fn main() -> Result<(), io::Error> {
                         // v0.2, this is going to be
                         // contiguous
                         // TODO(haadi): I'm sure you can find a smarter way,
-                        // e.g., if your only
-                        // requests are for earlier messages, you can just
-                        // automatically insert them at
-                        // the start of the array instead of "finding" the
-                        // insertion point
+                        // e.g., if your only requests are for earlier messages,
+                        // you can just automatically insert them at the start
+                        // of the array instead of "finding" the insertion point
                         loop {
                             if let Ok(mut lock) = messages.try_write() {
                                 let insertion_point = lock

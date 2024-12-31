@@ -1,4 +1,5 @@
 target/
 testing_cert/
+scripts/testing_cert/
 .env
 client-tauri/src-tauri/gen/

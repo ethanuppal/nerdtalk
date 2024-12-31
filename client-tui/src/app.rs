@@ -1,3 +1,7 @@
+// TODO: sometimes there's an overflow when using w/b at the end of a line in msg?
+// TODO: visual mode got fucked in messages, add the metadata_offset
+// TODO: call for history on scroll up
+
 use std::{io, sync::Arc, time};
 
 use copypasta::{ClipboardContext, ClipboardProvider};
@@ -21,6 +25,8 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::vim;
 
+const TIMESTAMP_LEN: usize = 34;
+
 /// Indicates which part of the UI is currently in “focus.”
 #[derive(Debug, PartialEq)]
 pub enum Focus {
@@ -28,14 +34,8 @@ pub enum Focus {
     Input,
 }
 
-// Placeholder for the User struct
-struct User {
-    username: String,
-}
-
 pub struct App {
     input: String,
-    user: User,
     editing_context: vim::EditingContext,
     exit: bool,
     messages_cursor: usize,
@@ -49,9 +49,6 @@ impl App {
     pub fn new(tx: mpsc::UnboundedSender<comms::ClientMessage>) -> Self {
         Self {
             input: String::new(),
-            user: User {
-                username: "me".to_string(),
-            },
             editing_context: vim::EditingContext::default(),
             exit: false,
             messages_cursor: 0,
@@ -230,56 +227,56 @@ impl App {
 
         frame.render_widget(messages_paragraph, message_chunks[0]);
 
-        // Scrollbar
-        if total_lines > inner_height {
-            let scrollbar_inner_height =
-                message_chunks[1].height.saturating_sub(2);
-            let thumb_pos = if max_scroll == 0 {
-                0
-            } else {
-                self.editing_context.scroll_offset * scrollbar_inner_height
-                    / max_scroll
-            };
+        // // Scrollbar
+        // if total_lines > inner_height {
+        //     let scrollbar_inner_height =
+        //         message_chunks[1].height.saturating_sub(2);
+        //     let thumb_pos = if max_scroll == 0 {
+        //         0
+        //     } else {
+        //         self.editing_context.scroll_offset * scrollbar_inner_height
+        //             / max_scroll
+        //     };
 
-            let mut scrollbar_text = Vec::new();
-            for i in 0..scrollbar_inner_height {
-                if i == thumb_pos {
-                    scrollbar_text.push(Line::from("█"));
-                } else {
-                    scrollbar_text.push(Line::from(" "));
-                }
-            }
+        //     let mut scrollbar_text = Vec::new();
+        //     for i in 0..scrollbar_inner_height {
+        //         if i == thumb_pos {
+        //             scrollbar_text.push(Line::from("█"));
+        //         } else {
+        //             scrollbar_text.push(Line::from(" "));
+        //         }
+        //     }
 
-            let scrollbar_paragraph =
-                Paragraph::new(Text::from(scrollbar_text)).block(
-                    Block::default()
-                        .borders(Borders::LEFT | Borders::RIGHT)
-                        .border_set(border::THICK),
-                );
+        //     let scrollbar_paragraph =
+        //         Paragraph::new(Text::from(scrollbar_text)).block(
+        //             Block::default()
+        //                 .borders(Borders::LEFT | Borders::RIGHT)
+        //                 .border_set(border::THICK),
+        //         );
 
-            frame.render_widget(scrollbar_paragraph, message_chunks[1]);
-        } else {
-            // no scrollbar needed
-            let empty_scrollbar = Paragraph::new("").block(
-                Block::default()
-                    .borders(Borders::LEFT | Borders::RIGHT)
-                    .border_set(border::THICK),
-            );
-            frame.render_widget(empty_scrollbar, message_chunks[1]);
-        }
+        //     frame.render_widget(scrollbar_paragraph, message_chunks[1]);
+        // } else {
+        //     // no scrollbar needed
+        //     let empty_scrollbar = Paragraph::new("").block(
+        //         Block::default()
+        //             .borders(Borders::LEFT | Borders::RIGHT)
+        //             .border_set(border::THICK),
+        //     );
+        //     frame.render_widget(empty_scrollbar, message_chunks[1]);
+        // }
 
         if self.editing_context.focus == Focus::Messages {
             let relative_y = (self.messages_cursor as u16)
                 .saturating_sub(self.editing_context.scroll_offset);
-            let line_length = messages
-                .get(self.messages_cursor)
-                .unwrap()
-                .text_content()
-                .unwrap()
-                .len();
 
-            const TIMESTAMP_LEN: usize = 34;
-            let metadata_offset = TIMESTAMP_LEN + self.user.username.len();
+            let message = messages
+                .get(self.messages_cursor)
+                .expect("message does not exist??");
+            let line_length =
+                message.text_content().expect("message is deleted").len();
+
+            let metadata_offset =
+                TIMESTAMP_LEN + message.metadata.username.len();
             let relative_x = (self.editing_context.cursor_pos).min(line_length)
                 + metadata_offset;
 
@@ -391,27 +388,10 @@ impl App {
     ) {
         match key_event.code {
             KeyCode::Char('j') => {
-                if self.editing_context.focus == Focus::Messages {
-                    if self.messages_cursor + 1 < messages.len() {
-                        self.messages_cursor += 1;
-                    } else {
-                        self.editing_context.focus = Focus::Input;
-                        self.editing_context.cursor_pos = 0;
-                    }
-                }
+                self.scroll_down(messages, 1);
             }
             KeyCode::Char('k') => {
-                if self.editing_context.focus == Focus::Messages {
-                    if self.messages_cursor > 0 {
-                        self.messages_cursor -= 1;
-                    }
-                } else {
-                    // safe assumption, there should always be a message
-                    if !messages.is_empty() {
-                        self.messages_cursor = messages.len() - 1;
-                    }
-                    self.editing_context.focus = Focus::Messages;
-                }
+                self.scroll_up(messages, 1);
             }
             KeyCode::Char('q') => {
                 self.exit();
@@ -532,9 +512,9 @@ impl App {
                     Focus::Messages => {
                         let line_len = messages
                             .get(self.messages_cursor)
-                            .unwrap()
+                            .expect("message does not exist??")
                             .text_content()
-                            .unwrap()
+                            .expect("message is deleted")
                             .len();
                         self.editing_context.cursor_pos =
                             (self.editing_context.cursor_pos + 1).min(line_len);
@@ -553,9 +533,9 @@ impl App {
                         self.yank_visual(
                             &messages
                                 .get(self.messages_cursor)
-                                .unwrap()
+                                .expect("message does not exist??")
                                 .text_content()
-                                .unwrap(),
+                                .expect("message is deleted"),
                         );
                     }
                     Focus::Input => {
@@ -585,7 +565,7 @@ impl App {
     ) {
         match mouse_event.kind {
             MouseEventKind::ScrollUp => {
-                self.scroll_up(1);
+                self.scroll_up(messages, 1);
             }
             MouseEventKind::ScrollDown => {
                 self.scroll_down(messages, 1);
@@ -603,7 +583,7 @@ impl App {
         if !trimmed.is_empty() {
             self.tx
                 .send(comms::ClientMessage::Append(comms::AppendChatEntry {
-                    username: self.user.username.clone(),
+                    username: "jeff".to_string(),
                     content: trimmed.to_string(),
                 }))
                 .expect("channel closed on server");
@@ -621,16 +601,45 @@ impl App {
         self.editing_context.scroll_offset = total_lines.saturating_sub(1);
     }
 
-    fn scroll_up(&mut self, lines: u16) {
-        self.editing_context.scroll_offset =
-            self.editing_context.scroll_offset.saturating_sub(lines);
+    fn scroll_up(&mut self, messages: &[chat::Entry], lines: usize) {
+        if self.messages_cursor == 0 {
+            self.tx
+                .send(comms::ClientMessage::Request {
+                    count: 50,
+                    up_to_slot_number: Some(
+                        messages
+                            .get(self.editing_context.scroll_offset as usize)
+                            .unwrap()
+                            .slot_number,
+                    ),
+                })
+                .expect("channel closed on server");
+        }
+
+        match self.editing_context.focus {
+            Focus::Messages => {
+                if self.messages_cursor > 0 {
+                    self.messages_cursor -= lines;
+                }
+            }
+            Focus::Input => {
+                if !messages.is_empty() {
+                    self.messages_cursor = messages.len() - lines;
+                }
+                self.editing_context.focus = Focus::Messages;
+            }
+        }
     }
 
-    fn scroll_down(&mut self, messages: &[chat::Entry], lines: u16) {
-        let total_lines = messages.len() as u16;
-        self.editing_context.scroll_offset =
-            (self.editing_context.scroll_offset + lines)
-                .min(total_lines.saturating_sub(1));
+    fn scroll_down(&mut self, messages: &[chat::Entry], lines: usize) {
+        if self.editing_context.focus == Focus::Messages {
+            if self.messages_cursor + 1 < messages.len() {
+                self.messages_cursor += lines;
+            } else {
+                self.editing_context.focus = Focus::Input;
+                self.editing_context.cursor_pos = 0;
+            }
+        }
     }
 
     fn yank_visual(&mut self, text: &str) {
