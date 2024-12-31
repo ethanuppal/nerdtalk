@@ -20,7 +20,6 @@ const InputBox = observer(({ messageLogStore }: InputBoxProps) => {
 
     messageLogStore.appendMessage({
       body: userInput,
-      authorRef: 0,
       userRef: 0,
       timestamp: new Date(),
     })
