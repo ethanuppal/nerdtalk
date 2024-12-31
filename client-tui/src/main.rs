@@ -15,11 +15,14 @@ async fn main() -> Result<(), io::Error> {
         .await
         .map_err(io::Error::other)?;
 
-    let messages = Arc::new(RwLock::new(vec![
-        "Welcome to the chat!".into(),
-        "Type a message and press Enter.".into(),
-    ]));
+    let messages = Arc::new(RwLock::new(vec![]));
     let app_messages = messages.clone();
+
+    tx.send(comms::ClientMessage::Request {
+        count: 50,
+        up_to_slot_number: None,
+    })
+    .expect("todo");
 
     let mut app = App::new(tx);
 
@@ -29,13 +32,45 @@ async fn main() -> Result<(), io::Error> {
             match server_message {
                 comms::ServerMessage::NewEntry(chat_log_entry) => loop {
                     if let Ok(mut lock) = messages.try_write() {
-                        lock.push(format!(
-                            "{}: {}",
-                            chat_log_entry.username, chat_log_entry.content
-                        ));
+                        lock.push(chat_log_entry);
                         break;
                     }
                 },
+                comms::ServerMessage::EntryRange(entries) => {
+                    if !entries.is_empty() {
+                        // since we don't have to worry about updates until
+                        // v0.2, this is going to be
+                        // contiguous
+                        // TODO(haadi): I'm sure you can find a smarter way,
+                        // e.g., if your only
+                        // requests are for earlier messages, you can just
+                        // automatically insert them at
+                        // the start of the array instead of "finding" the
+                        // insertion point
+                        loop {
+                            if let Ok(mut lock) = messages.try_write() {
+                                let insertion_point = lock
+                                    .iter()
+                                    .enumerate()
+                                    .find_map(|(index, entry)| {
+                                        if entry.slot_number
+                                            == entries[0].slot_number
+                                        {
+                                            Some(index)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                lock.splice(
+                                    insertion_point..insertion_point,
+                                    entries,
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
     });

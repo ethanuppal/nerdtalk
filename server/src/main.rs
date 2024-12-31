@@ -1,6 +1,12 @@
-use std::{collections::HashMap, env, fmt::Display, io, sync::Arc};
+use std::{
+    cmp,
+    collections::HashMap,
+    env, error,
+    fmt::{self},
+    io, net,
+    sync::Arc,
+};
 
-use chat::ChatLogEntry;
 use comms::{AppendChatEntry, Codable};
 use futures_util::{SinkExt, StreamExt};
 use log::info;
@@ -20,18 +26,41 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Default)]
 struct FakeChatLog {
-    lmao: Vec<ChatLogEntry>,
+    lmao: Vec<chat::Entry>,
 }
 
 impl FakeChatLog {
-    fn append(&mut self, append: AppendChatEntry) -> ChatLogEntry {
-        let entry = ChatLogEntry::new_timestamped_now(
+    fn append(&mut self, append: AppendChatEntry) -> chat::Entry {
+        let entry = chat::Entry::new_timestamped_now(
             self.lmao.len(),
             append.username,
-            append.content,
+            chat::Content::Original(chat::MessageText(append.content)),
         );
         self.lmao.push(entry.clone());
         entry
+    }
+
+    fn entries(
+        &self,
+        count: usize,
+        last_slot: Option<usize>,
+    ) -> Vec<chat::Entry> {
+        let Some(last_entry) = self.lmao.last() else {
+            return vec![];
+        };
+        let last_slot = last_slot.unwrap_or(last_entry.slot_number);
+
+        let last_index = self
+            .lmao
+            .iter()
+            .enumerate()
+            .rfind(|(_, entry)| entry.slot_number == last_slot)
+            .expect("slot missing todo don't crash server on this lol")
+            .0;
+        let count = cmp::min(count, last_index + 1);
+
+        // needs to +1 before -count
+        self.lmao[last_index + 1 - count..last_index + 1].to_owned()
     }
 }
 
@@ -41,20 +70,33 @@ enum Error {
     Io(io::Error),
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Tls(error) => error.fmt(f),
+            Error::Io(error) => error.fmt(f),
+        }
+    }
+}
+
+impl error::Error for Error {}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let _ = env_logger::try_init();
 
     let certificate = if cfg!(feature = "local") {
-        CertificateDer::from_pem_file("testing_cert/cert.pem")
-            .expect("Did you remember to run ./gen_cert.sh for local testing?")
+        CertificateDer::from_pem_file("testing_cert/cert.pem").expect(
+            "Did you remember to run ./scripts/gen_cert.sh for local testing?",
+        )
     } else {
         todo!("Ask Peter for midcode certificate")
     };
 
     let private_key = if cfg!(feature = "local") {
-        PrivateKeyDer::from_pem_file("testing_cert/key.pem")
-            .expect("Did you remember to run ./gen_cert.sh for local testing?")
+        PrivateKeyDer::from_pem_file("testing_cert/key.pem").expect(
+            "Did you remember to run ./scripts/gen_cert.sh for local testing?",
+        )
     } else {
         todo!("Ask Peter for midcode private key")
     };
@@ -68,7 +110,7 @@ async fn main() -> Result<(), Error> {
 
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8443".to_string());
+        .expect("server takes the address:port it should listen to as a command-line argument");
 
     let listener = TcpListener::bind(&addr).await.map_err(Error::Io)?;
     info!("Listening on: {}", addr);
@@ -100,7 +142,7 @@ async fn main() -> Result<(), Error> {
                 }
                 Err(error) => {
                     println!(
-                        "failed to make session with {}: {:?}",
+                        "failed to make session with {}: {}",
                         client_address, error
                     );
                 }
@@ -108,10 +150,23 @@ async fn main() -> Result<(), Error> {
         }
     });
 
-    while let Some(append) = message_rx.recv().await {
-        let entry = fake_chat_log.append(append);
-        for (client, session) in sessions.read().await.iter() {
-            session.send(comms::ServerMessage::NewEntry(entry.clone()));
+    while let Some((sender, message)) = message_rx.recv().await {
+        println!("server processing message: {:?}", message);
+        match message {
+            comms::ClientMessage::Append(append_chat_entry) => {
+                let entry = fake_chat_log.append(append_chat_entry);
+                for (_, session) in sessions.read().await.iter() {
+                    session.send(comms::ServerMessage::NewEntry(entry.clone()));
+                }
+            }
+            comms::ClientMessage::Request {
+                count,
+                up_to_slot_number,
+            } => {
+                let entries = fake_chat_log.entries(count, up_to_slot_number);
+                sessions.read().await[&sender]
+                    .send(comms::ServerMessage::EntryRange(entries));
+            }
         }
     }
 
@@ -124,24 +179,36 @@ enum SessionError {
     WebSocket(tokio_tungstenite::tungstenite::Error),
 }
 
+impl fmt::Display for SessionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SessionError::IO(error) => error.fmt(f),
+            SessionError::WebSocket(error) => error.fmt(f),
+        }
+    }
+}
+
+impl error::Error for SessionError {}
+
 struct Session {
     to_client_tx: mpsc::UnboundedSender<Message>,
-    join_handle: JoinHandle<()>,
+    _join_handle: JoinHandle<()>,
 }
 
 impl Session {
     fn send(&self, message: comms::ServerMessage) {
+        println!("sending reply {:?}", message);
         self.to_client_tx
             .send(Message::binary(message.to_bytes()))
             .expect("todo");
     }
 }
 
-async fn new_client_connection<D: Display + Clone>(
+async fn new_client_connection(
     tcp_stream: TcpStream,
-    client_address: D,
+    client_address: net::SocketAddr,
     tls_acceptor: &TlsAcceptor,
-    message_tx: &mpsc::UnboundedSender<AppendChatEntry>,
+    message_tx: &mpsc::UnboundedSender<(net::SocketAddr, comms::ClientMessage)>,
 ) -> Result<Session, SessionError> {
     let tls_acceptor = tls_acceptor.clone();
     let message_tx = message_tx.clone();
@@ -178,12 +245,9 @@ async fn new_client_connection<D: Display + Clone>(
                                     "server got message: {:?}",
                                     client_request
                                 );
-                                match client_request {
-                                    comms::ClientMessage::Append(append) => {
-                                        message_tx.send(append).expect("todo");
-                                    }
-                                    _ => todo!(),
-                                }
+                                message_tx
+                                    .send((client_address, client_request))
+                                    .expect("todo");
                             }
                             Message::Close(close_frame) => {
                                 write_websocket_thread_tx
@@ -214,6 +278,6 @@ async fn new_client_connection<D: Display + Clone>(
 
     Ok(Session {
         to_client_tx: write_websocket_tx,
-        join_handle,
+        _join_handle: join_handle,
     })
 }

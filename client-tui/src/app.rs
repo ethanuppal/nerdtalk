@@ -11,7 +11,7 @@ use crossterm::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Style, Stylize},
     symbols::border,
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
@@ -28,8 +28,14 @@ pub enum Focus {
     Input,
 }
 
+// Placeholder for the User struct
+struct User {
+    username: String,
+}
+
 pub struct App {
     input: String,
+    user: User,
     editing_context: vim::EditingContext,
     exit: bool,
     messages_cursor: usize,
@@ -43,6 +49,9 @@ impl App {
     pub fn new(tx: mpsc::UnboundedSender<comms::ClientMessage>) -> Self {
         Self {
             input: String::new(),
+            user: User {
+                username: "me".to_string(),
+            },
             editing_context: vim::EditingContext::default(),
             exit: false,
             messages_cursor: 0,
@@ -59,7 +68,7 @@ impl App {
     pub async fn run(
         &mut self,
         terminal: &mut DefaultTerminal,
-        messages: Arc<RwLock<Vec<String>>>,
+        messages: Arc<RwLock<Vec<chat::Entry>>>,
     ) -> Result<(), io::Error> {
         let mut interval =
             tokio::time::interval(time::Duration::from_millis(20));
@@ -77,7 +86,7 @@ impl App {
         Ok(())
     }
 
-    fn draw(&mut self, messages: &[String], frame: &mut Frame) {
+    fn draw(&mut self, messages: &[chat::Entry], frame: &mut Frame) {
         let size = frame.area();
 
         let available_width_for_text = if size.width > 5 {
@@ -108,28 +117,67 @@ impl App {
 
     fn draw_messages_area(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         frame: &mut Frame,
         area: Rect,
     ) {
         let text_lines: Vec<Line> = messages
             .iter()
             .enumerate()
-            .map(|(i, msg)| {
+            .map(|(i, message)| {
+                let default_line = Line::from_iter([
+                    Span::styled(
+                        format!("[{}] ", message.metadata.timestamp),
+                        Style::new().dim(),
+                    ),
+                    Span::styled(
+                        &message.metadata.username,
+                        Style::new().yellow(),
+                    ),
+                    Span::raw(format!(
+                        ": {}",
+                        message.text_content().expect("todo: deleted messaged")
+                    )),
+                    Span::styled(
+                        if matches!(message.content, chat::Content::Edited(_)) {
+                            " (edited)"
+                        } else {
+                            ""
+                        },
+                        Style::new().dim(),
+                    ),
+                ]);
+
                 if i == self.messages_cursor
                     && self.editing_context.focus == Focus::Messages
                     && matches!(self.editing_context.mode, vim::Mode::Visual)
                 {
                     if let Some(anchor) = self.visual_anchor {
-                        // Visual selection for the current message line
+                        let formatted_text = format!(
+                            "[{}] {}: {}{}",
+                            message.metadata.timestamp,
+                            message.metadata.username,
+                            message
+                                .text_content()
+                                .expect("todo: deleted message"),
+                            if matches!(
+                                message.content,
+                                chat::Content::Edited(_)
+                            ) {
+                                " (edited)"
+                            } else {
+                                ""
+                            }
+                        );
+
                         render_text_with_selection(
-                            msg,
+                            &formatted_text,
                             anchor,
                             self.editing_context.cursor_pos,
                         )
                     } else {
                         // No anchor set yet, just return raw
-                        Line::from(Span::raw(msg))
+                        default_line
                     }
                 } else if i == self.messages_cursor
                     && self.editing_context.focus == Focus::Messages
@@ -137,10 +185,10 @@ impl App {
                 {
                     // In Normal mode with the message in focus,
                     // no highlighting, just plain text
-                    Line::from(Span::raw(msg))
+                    default_line
                 } else {
                     // Not the selected line, or out of focus
-                    Line::from(Span::raw(msg))
+                    default_line
                 }
             })
             .collect();
@@ -220,19 +268,20 @@ impl App {
             frame.render_widget(empty_scrollbar, message_chunks[1]);
         }
 
-        // CHANGED: If focus == Messages, place the cursor on the line, taking
-        // into account the horizontal cursor position (editing_context.cursor_pos).
         if self.editing_context.focus == Focus::Messages {
-            // relative_y = the vertical position inside the visible region
             let relative_y = (self.messages_cursor as u16)
                 .saturating_sub(self.editing_context.scroll_offset);
-            // Bound cursor_x by the line length
-            let line_length = messages[self.messages_cursor].len();
-            let relative_x = self
-                .editing_context
-                .cursor_pos
-                .min(line_length)
-                .saturating_sub(0);
+            let line_length = messages
+                .get(self.messages_cursor)
+                .unwrap()
+                .text_content()
+                .unwrap()
+                .len();
+
+            const TIMESTAMP_LEN: usize = 34;
+            let metadata_offset = TIMESTAMP_LEN + self.user.username.len();
+            let relative_x = (self.editing_context.cursor_pos).min(line_length)
+                + metadata_offset;
 
             let cursor_x = message_chunks[0].x + 1 + relative_x as u16;
             let cursor_y = message_chunks[0].y + 1 + relative_y;
@@ -296,7 +345,10 @@ impl App {
         }
     }
 
-    fn handle_events(&mut self, messages: &[String]) -> Result<(), io::Error> {
+    fn handle_events(
+        &mut self,
+        messages: &[chat::Entry],
+    ) -> Result<(), io::Error> {
         if event::poll(time::Duration::from_millis(5))? {
             match event::read()? {
                 Event::Key(key_event)
@@ -313,7 +365,11 @@ impl App {
         Ok(())
     }
 
-    fn handle_key_event(&mut self, messages: &[String], key_event: KeyEvent) {
+    fn handle_key_event(
+        &mut self,
+        messages: &[chat::Entry],
+        key_event: KeyEvent,
+    ) {
         match self.editing_context.mode {
             vim::Mode::Normal => {
                 self.handle_key_event_normal_mode(messages, key_event)
@@ -330,7 +386,7 @@ impl App {
     /// Normal mode: typed characters are interpreted as Vim commands.
     fn handle_key_event_normal_mode(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         key_event: KeyEvent,
     ) {
         match key_event.code {
@@ -376,8 +432,12 @@ impl App {
             KeyCode::Char(c) => {
                 match self.editing_context.focus {
                     Focus::Messages => {
-                        self.editing_context.message_len =
-                            messages[self.messages_cursor].len();
+                        self.editing_context.message_len = messages
+                            .get(self.messages_cursor)
+                            .unwrap()
+                            .text_content()
+                            .unwrap()
+                            .len();
                     }
                     Focus::Input => {
                         self.editing_context.message_len = self.input.len();
@@ -391,7 +451,12 @@ impl App {
         if let Some(command) = self.command_buffer.parse() {
             let mut msg_input = String::new();
             if self.editing_context.focus == Focus::Messages {
-                msg_input = messages[self.messages_cursor].clone();
+                msg_input = messages
+                    .get(self.messages_cursor)
+                    .unwrap()
+                    .text_content()
+                    .unwrap()
+                    .to_string();
             }
 
             self.editing_context.apply_command(
@@ -410,7 +475,7 @@ impl App {
     /// Insert mode: typed characters are inserted into `self.input`.
     fn handle_key_event_insert_mode(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         key_event: KeyEvent,
     ) {
         match key_event.code {
@@ -442,7 +507,7 @@ impl App {
 
     fn handle_key_event_visual_mode(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         key_event: KeyEvent,
     ) {
         match key_event.code {
@@ -465,7 +530,12 @@ impl App {
             KeyCode::Right | KeyCode::Char('l') => {
                 match self.editing_context.focus {
                     Focus::Messages => {
-                        let line_len = messages[self.messages_cursor].len();
+                        let line_len = messages
+                            .get(self.messages_cursor)
+                            .unwrap()
+                            .text_content()
+                            .unwrap()
+                            .len();
                         self.editing_context.cursor_pos =
                             (self.editing_context.cursor_pos + 1).min(line_len);
                     }
@@ -480,7 +550,13 @@ impl App {
             KeyCode::Char('y') => {
                 match self.editing_context.focus {
                     Focus::Messages => {
-                        self.yank_visual(&messages[self.messages_cursor]);
+                        self.yank_visual(
+                            &messages
+                                .get(self.messages_cursor)
+                                .unwrap()
+                                .text_content()
+                                .unwrap(),
+                        );
                     }
                     Focus::Input => {
                         self.yank_visual(self.input.clone().as_str());
@@ -504,7 +580,7 @@ impl App {
 
     fn handle_mouse_event(
         &mut self,
-        messages: &[String],
+        messages: &[chat::Entry],
         mouse_event: MouseEvent,
     ) {
         match mouse_event.kind {
@@ -522,12 +598,12 @@ impl App {
         self.exit = true;
     }
 
-    fn send_message(&mut self, messages: &[String]) {
+    fn send_message(&mut self, messages: &[chat::Entry]) {
         let trimmed = self.input.trim();
         if !trimmed.is_empty() {
             self.tx
                 .send(comms::ClientMessage::Append(comms::AppendChatEntry {
-                    username: "me".to_string(),
+                    username: self.user.username.clone(),
                     content: trimmed.to_string(),
                 }))
                 .expect("channel closed on server");
@@ -537,7 +613,7 @@ impl App {
         self.scroll_to_bottom(messages);
     }
 
-    fn scroll_to_bottom(&mut self, messages: &[String]) {
+    fn scroll_to_bottom(&mut self, messages: &[chat::Entry]) {
         if !messages.is_empty() {
             self.messages_cursor = messages.len() - 1;
         }
@@ -550,7 +626,7 @@ impl App {
             self.editing_context.scroll_offset.saturating_sub(lines);
     }
 
-    fn scroll_down(&mut self, messages: &[String], lines: u16) {
+    fn scroll_down(&mut self, messages: &[chat::Entry], lines: u16) {
         let total_lines = messages.len() as u16;
         self.editing_context.scroll_offset =
             (self.editing_context.scroll_offset + lines)
@@ -649,11 +725,11 @@ impl App {
 /// We can use this for either the `input` string or the currently focused
 /// message line. This returns a single [`Line`] so it’s most suitable
 /// for single-line text.
-fn render_text_with_selection<'a>(
-    text: &'a str,
+fn render_text_with_selection(
+    text: &str,
     anchor: usize,
     cursor_pos: usize,
-) -> Line<'a> {
+) -> Line<'static> {
     let (start, end) = if anchor <= cursor_pos {
         (anchor, cursor_pos)
     } else {
@@ -661,12 +737,12 @@ fn render_text_with_selection<'a>(
     };
 
     if start >= end || end > text.len() {
-        return Line::from(Span::raw(text));
+        return Line::from(Span::raw(text.to_string()));
     }
 
-    let before = &text[..start];
-    let selected = &text[start..end];
-    let after = &text[end..];
+    let before = text[..start].to_string();
+    let selected = text[start..end].to_string();
+    let after = text[end..].to_string();
 
     Line::from(vec![
         Span::raw(before),

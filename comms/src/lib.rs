@@ -1,5 +1,5 @@
 pub use bincode::{Error as CodingError, ErrorKind as CodingErrorKind};
-use chat::ChatLogEntry;
+use chat::Entry;
 use serde::{Deserialize, Serialize};
 
 pub trait Codable {
@@ -18,6 +18,7 @@ pub trait Codable {
     }
 }
 
+// TODO: get rid of this
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppendChatEntry {
     pub username: String,
@@ -37,7 +38,8 @@ impl Codable for ClientMessage {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerMessage {
-    NewEntry(ChatLogEntry),
+    NewEntry(Entry),
+    EntryRange(Vec<chat::Entry>),
 }
 
 impl Codable for ServerMessage {}

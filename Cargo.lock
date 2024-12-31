@@ -706,6 +706,7 @@ dependencies = [
 name = "client-tui"
 version = "0.0.0"
 dependencies = [
+ "chat",
  "client-connect",
  "color-eyre",
  "comms",
