@@ -1,5 +1,3 @@
-// TODO: sometimes there's an overflow when using w/b at the end of a line in msg?
-// TODO: visual mode got fucked in messages, add the metadata_offset
 // TODO: call for history on scroll up
 
 use std::{io, sync::Arc, time};
@@ -171,6 +169,7 @@ impl App {
                             &formatted_text,
                             anchor,
                             self.editing_context.cursor_pos,
+                            Some(message.metadata.username.len()),
                         )
                     } else {
                         // No anchor set yet, just return raw
@@ -300,6 +299,7 @@ impl App {
                 &self.input,
                 self.visual_anchor.unwrap_or(0),
                 self.editing_context.cursor_pos,
+                None,
             )
         } else {
             // regular text
@@ -582,10 +582,10 @@ impl App {
         let trimmed = self.input.trim();
         if !trimmed.is_empty() {
             self.tx
-                .send(comms::ClientMessage::Append(comms::AppendChatEntry {
+                .send(comms::ClientMessage::Post {
                     username: "jeff".to_string(),
                     content: trimmed.to_string(),
-                }))
+                })
                 .expect("channel closed on server");
         }
         self.input.clear();
@@ -738,11 +738,19 @@ fn render_text_with_selection(
     text: &str,
     anchor: usize,
     cursor_pos: usize,
+    message_username_len: Option<usize>,
 ) -> Line<'static> {
+    // if message_username_len is Some, we set the offset to that value + TIMESTAMP_LEN
+    // otherwise, we set it to 0
+    let mut offset: usize = 0;
+    if let Some(len) = message_username_len {
+        offset = len + TIMESTAMP_LEN + 1;
+    };
+
     let (start, end) = if anchor <= cursor_pos {
-        (anchor, cursor_pos)
+        (anchor + offset, cursor_pos + offset)
     } else {
-        (cursor_pos, anchor)
+        (cursor_pos + offset, anchor + offset)
     };
 
     if start >= end || end > text.len() {

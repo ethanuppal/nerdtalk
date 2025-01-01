@@ -466,9 +466,9 @@ impl EditingContext {
             // -----------------------------
             // MultiCommand actions
             // -----------------------------
-            Command::MultiCommand(multi_cmd) => {
+            Command::MultiCommand(multi_command) => {
                 if self.focus == Focus::Input {
-                    match multi_cmd {
+                    match multi_command {
                         MultiCommand::Delete(noun) => {
                             delete_helper(
                                 &mut self.cursor_pos,
@@ -504,7 +504,7 @@ impl EditingContext {
                         _ => {} // Yank works for both
                     }
                 }
-                if let MultiCommand::Yank(noun) = multi_cmd {
+                if let MultiCommand::Yank(noun) = multi_command {
                     yank_helper(&mut self.cursor_pos, text, clipboard, noun);
                 }
             }
@@ -745,6 +745,9 @@ fn word_boundary(
     boundary_regex: &str,
     is_forward: bool,
 ) -> usize {
+    // In case we get an out of bounds index
+    let start_index = start_index.min(text.len() - 1);
+
     let remainder = if is_forward {
         &text[start_index..]
     } else {
