@@ -59,8 +59,6 @@ fn split_by_case(str: &str, case: Case) -> Vec<(usize, String)> {
     result
 }
 
-const TIMESTAMP_LEN: usize = 32;
-
 impl Abbreviated<'_> {
     fn check_words(&mut self, ident: &syn::Ident, case: Case) {
         let span = ident.span();
