@@ -531,7 +531,7 @@ impl App {
                 match self.editing_context.focus {
                     Focus::Messages => {
                         self.yank_visual(
-                            &messages
+                            messages
                                 .get(self.messages_cursor)
                                 .expect("message does not exist??")
                                 .text_content()

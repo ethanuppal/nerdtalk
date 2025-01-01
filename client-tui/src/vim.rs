@@ -767,22 +767,20 @@ fn word_boundary(
         } else {
             text.len()
         }
-    } else {
-        if let Some(mat) = matches.last() {
-            let (ms, me) = if mat.end() == start_index {
-                let (new_index, at_front) = matches.len().overflowing_sub(2);
-                if at_front {
-                    (0, 0)
-                } else {
-                    (matches[new_index].start(), matches[new_index].end())
-                }
+    } else if let Some(mat) = matches.last() {
+        let (ms, me) = if mat.end() == start_index {
+            let (new_index, at_front) = matches.len().overflowing_sub(2);
+            if at_front {
+                (0, 0)
             } else {
-                (mat.start(), mat.end())
-            };
-            me + (text[ms..me + 1].chars().all(char::is_whitespace) as usize)
+                (matches[new_index].start(), matches[new_index].end())
+            }
         } else {
-            0
-        }
+            (mat.start(), mat.end())
+        };
+        me + (text[ms..me + 1].chars().all(char::is_whitespace) as usize)
+    } else {
+        0
     }
 }
 
@@ -814,12 +812,12 @@ fn find_word_end(text: &str, start_index: usize) -> usize {
         }
         if start_index + ms - 2 == start_index {
             if matches.len() > 1 {
-                return start_index + matches[1].end() - 2;
+                start_index + matches[1].end() - 2
             } else {
-                return text.len();
+                text.len()
             }
         } else {
-            return start_index + ms - 2;
+            start_index + ms - 2
         }
     } else {
         text.len()
