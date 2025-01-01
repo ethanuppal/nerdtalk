@@ -911,7 +911,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chat"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
@@ -985,7 +985,7 @@ checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
 name = "client-connect"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "chat",
  "comms",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "client-tui"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "chat",
  "client-connect",
@@ -1134,7 +1134,7 @@ dependencies = [
 
 [[package]]
 name = "comms"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bincode",
  "chat",
@@ -4278,7 +4278,7 @@ dependencies = [
 
 [[package]]
 name = "nerdtalk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "client-connect",
  "comms",
@@ -5891,7 +5891,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "chat",
  "comms",
@@ -8115,7 +8115,7 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xtask-lint"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "annotate-snippets",
  "cargo",
