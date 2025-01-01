@@ -291,7 +291,8 @@ impl App {
         area: Rect,
         available_width_for_text: u16,
     ) {
-        // We still highlight the input area if we are in Visual mode and focus=Input
+        // We still highlight the input area if we are in Visual mode and
+        // focus=Input
         let displayed_text = if self.editing_context.focus == Focus::Input
             && matches!(self.editing_context.mode, vim::Mode::Visual)
         {
@@ -516,7 +517,8 @@ impl App {
                             .expect("message is deleted")
                             .len();
                         self.editing_context.cursor_pos =
-                            (self.editing_context.cursor_pos + 1).min(line_length);
+                            (self.editing_context.cursor_pos + 1)
+                                .min(line_length);
                     }
                     Focus::Input => {
                         self.editing_context.cursor_pos =
@@ -729,9 +731,9 @@ impl App {
     }
 }
 
-/// A helper function to render text with a highlighted region (for Visual mode).
-/// We can use this for either the `input` string or the currently focused
-/// message line. This returns a single [`Line`] so it’s most suitable
+/// A helper function to render text with a highlighted region (for Visual
+/// mode). We can use this for either the `input` string or the currently
+/// focused message line. This returns a single [`Line`] so it’s most suitable
 /// for single-line text.
 fn render_text_with_selection(
     text: &str,

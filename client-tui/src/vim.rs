@@ -307,8 +307,8 @@ impl Default for EditingContext {
 }
 
 impl EditingContext {
-    /// Applies a [`Command`] to `text` the current editor state, using `clipboard`
-    /// for yanking/pasting, with a window height of `height`.
+    /// Applies a [`Command`] to `text` the current editor state, using
+    /// `clipboard` for yanking/pasting, with a window height of `height`.
     pub fn apply_command(
         &mut self,
         text: &mut String,
