@@ -1,8 +1,6 @@
 use std::{env, io, sync::Arc};
 
-pub mod app;
-pub mod vim;
-use crate::app::App;
+use client_tui::app::App;
 use tokio::sync::RwLock;
 
 #[tokio::main]
