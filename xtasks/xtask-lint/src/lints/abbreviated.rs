@@ -25,13 +25,14 @@ enum Case {
     Snake,
     /// for types
     Pascal,
+    Constant,
 }
 
 fn split_by_case(str: &str, case: Case) -> Vec<(usize, String)> {
     let mut result = vec![];
     let mut last_split = 0;
     match case {
-        Case::Snake => {
+        Case::Snake | Case::Constant => {
             for (i, c) in str.char_indices() {
                 if c == '_' {
                     result.push((last_split, str[last_split..i].to_string()));
@@ -58,11 +59,15 @@ fn split_by_case(str: &str, case: Case) -> Vec<(usize, String)> {
     result
 }
 
+const TIMESTAMP_LEN: usize = 32;
+
 impl Abbreviated<'_> {
     fn check_words(&mut self, ident: &syn::Ident, case: Case) {
         let span = ident.span();
         for (relative_start, word) in split_by_case(&ident.to_string(), case) {
-            if let Some(replacements) = ABBREVIATIONS.get(word.as_str()) {
+            if let Some(replacements) =
+                ABBREVIATIONS.get(word.to_ascii_lowercase().as_str())
+            {
                 assert!(!replacements.is_empty());
 
                 let absolute_start = span.byte_range().start + relative_start;
@@ -72,9 +77,15 @@ impl Abbreviated<'_> {
                     .iter()
                     .map(|replacement| {
                         let mut result = format!("`{}`", replacement);
-                        if matches!(case, Case::Pascal) {
-                            if let Some(first) = result.get_mut(1..2) {
-                                first.make_ascii_uppercase();
+                        match case {
+                            Case::Snake => {}
+                            Case::Pascal => {
+                                if let Some(first) = result.get_mut(1..2) {
+                                    first.make_ascii_uppercase();
+                                }
+                            }
+                            Case::Constant => {
+                                result.make_ascii_uppercase();
                             }
                         }
                         result
@@ -136,7 +147,7 @@ impl<'ast> syn::visit::Visit<'ast> for Abbreviated<'_> {
     }
 
     fn visit_item_const(&mut self, item_const: &'ast syn::ItemConst) {
-        self.check_words(&item_const.ident, Case::Snake);
+        self.check_words(&item_const.ident, Case::Constant);
         syn::visit::visit_item_const(self, item_const);
     }
 
