@@ -1,8 +1,6 @@
 use std::{collections::HashMap, sync};
 
 use annotate_snippets::Level;
-use proc_macro2::Span;
-use syn::spanned::Spanned;
 
 use super::{DiagnosticContext, WithDiagnosticContext};
 
@@ -95,19 +93,18 @@ impl Abbreviated<'_> {
                     }
                 };
 
-                self.context.print(
-                    Level::Warning.title("potential abbreviation").snippet(
-                        self.context
-                            .new_snippet()
-                            .line_start(span.start().line)
-                            .fold(true)
-                            .annotation(Level::Help.span(span_range).label(
-                                &format!(
-                                    "Consider using {} instead",
-                                    replacements_string
-                                ),
-                            )),
-                    ),
+                self.context.new_warning(
+                    "potential abbreviation",
+                    self.context
+                        .new_snippet()
+                        .line_start(span.start().line)
+                        .fold(true)
+                        .annotation(Level::Help.span(span_range).label(
+                            &format!(
+                                "Consider using {} instead",
+                                replacements_string
+                            ),
+                        )),
                 );
             }
         }

@@ -8,6 +8,7 @@ use std::{
 };
 
 use annotate_snippets::Renderer;
+use lints::EmittedStatus;
 
 mod lints;
 
@@ -23,7 +24,7 @@ fn workspace_toml() -> PathBuf {
 }
 
 fn process_source_file(
-    emitted: Rc<RefCell<bool>>,
+    emitted_status: Rc<RefCell<EmittedStatus>>,
     renderer: &Renderer,
     path: &Path,
 ) -> io::Result<()> {
@@ -33,7 +34,7 @@ fn process_source_file(
     let ast = syn::parse_file(source).map_err(io::Error::other)?;
 
     lints::apply::<lints::abbreviated::Abbreviated>(
-        emitted,
+        emitted_status,
         renderer,
         &path_string,
         source,
@@ -57,7 +58,7 @@ fn main() -> io::Result<()> {
             .unwrap();
 
     let renderer = Renderer::styled();
-    let emitted = Rc::new(RefCell::new(false));
+    let emitted_status = Rc::new(RefCell::new(EmittedStatus::default()));
 
     for package in workspace.members() {
         let source = cargo::sources::PathSource::new(
@@ -77,12 +78,18 @@ fn main() -> io::Result<()> {
                     "processing file: {}",
                     source_file.to_string_lossy()
                 );
-                process_source_file(emitted.clone(), &renderer, &source_file)?;
+                process_source_file(
+                    emitted_status.clone(),
+                    &renderer,
+                    &source_file,
+                )?;
             }
         }
     }
 
-    if warnings_are_errors && *emitted.borrow() {
+    if (warnings_are_errors && emitted_status.borrow().warned)
+        || emitted_status.borrow().errored
+    {
         Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Some linting messages were produced",
