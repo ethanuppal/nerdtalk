@@ -313,7 +313,6 @@ impl EditingContext {
         &mut self,
         text: &mut String,
         clipboard: &mut ClipboardContext,
-        height: u16,
         command: Command,
     ) {
         match command {
