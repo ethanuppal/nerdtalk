@@ -1,6 +1,8 @@
+// TODO: call for history on scroll up
+
 use std::{io, sync::Arc, time};
 
-use copypasta::ClipboardContext;
+use copypasta::{ClipboardContext, ClipboardProvider};
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
     event::{
@@ -21,6 +23,8 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::vim;
 
+const TIMESTAMP_LENGTH: usize = 34;
+
 /// Indicates which part of the UI is currently in “focus.”
 #[derive(Debug, PartialEq)]
 pub enum Focus {
@@ -36,6 +40,7 @@ pub struct App {
     command_buffer: vim::CommandBuffer,
     clipboard: ClipboardContext,
     tx: mpsc::UnboundedSender<comms::ClientMessage>,
+    visual_anchor: Option<usize>,
 }
 
 impl App {
@@ -51,6 +56,7 @@ impl App {
                 copypasta::ClipboardContext::new().unwrap()
             }),
             tx,
+            visual_anchor: None,
         }
     }
 
@@ -112,8 +118,9 @@ impl App {
     ) {
         let text_lines: Vec<Line> = messages
             .iter()
-            .map(|message| {
-                Line::from_iter([
+            .enumerate()
+            .map(|(i, message)| {
+                let default_line = Line::from_iter([
                     Span::styled(
                         format!("[{}] ", message.metadata.timestamp),
                         Style::new().dim(),
@@ -134,7 +141,51 @@ impl App {
                         },
                         Style::new().dim(),
                     ),
-                ])
+                ]);
+
+                if i == self.messages_cursor
+                    && self.editing_context.focus == Focus::Messages
+                    && matches!(self.editing_context.mode, vim::Mode::Visual)
+                {
+                    if let Some(anchor) = self.visual_anchor {
+                        let formatted_text = format!(
+                            "[{}] {}: {}{}",
+                            message.metadata.timestamp,
+                            message.metadata.username,
+                            message
+                                .text_content()
+                                .expect("todo: deleted message"),
+                            if matches!(
+                                message.content,
+                                chat::Content::Edited(_)
+                            ) {
+                                " (edited)"
+                            } else {
+                                ""
+                            }
+                        );
+
+                        render_text_with_selection(
+                            &formatted_text,
+                            anchor,
+                            self.editing_context.cursor_pos,
+                            Some(message.metadata.username.len()),
+                        )
+                    } else {
+                        // No anchor set yet, just return raw
+                        default_line
+                    }
+                } else if i == self.messages_cursor
+                    && self.editing_context.focus == Focus::Messages
+                    && matches!(self.editing_context.mode, vim::Mode::Normal)
+                {
+                    // In Normal mode with the message in focus,
+                    // no highlighting, just plain text
+                    default_line
+                } else {
+                    // Not the selected line, or out of focus
+                    default_line
+                }
             })
             .collect();
 
@@ -175,47 +226,60 @@ impl App {
 
         frame.render_widget(messages_paragraph, message_chunks[0]);
 
-        if total_lines > inner_height {
-            let scrollbar_inner_height =
-                message_chunks[1].height.saturating_sub(2);
-            let thumb_pos = if max_scroll == 0 {
-                0
-            } else {
-                self.editing_context.scroll_offset * scrollbar_inner_height
-                    / max_scroll
-            };
+        // // Scrollbar
+        // if total_lines > inner_height {
+        //     let scrollbar_inner_height =
+        //         message_chunks[1].height.saturating_sub(2);
+        //     let thumb_pos = if max_scroll == 0 {
+        //         0
+        //     } else {
+        //         self.editing_context.scroll_offset * scrollbar_inner_height
+        //             / max_scroll
+        //     };
 
-            let mut scrollbar_text = Vec::new();
-            for i in 0..scrollbar_inner_height {
-                if i == thumb_pos {
-                    scrollbar_text.push(Line::from("█"));
-                } else {
-                    scrollbar_text.push(Line::from(" "));
-                }
-            }
+        //     let mut scrollbar_text = Vec::new();
+        //     for i in 0..scrollbar_inner_height {
+        //         if i == thumb_pos {
+        //             scrollbar_text.push(Line::from("█"));
+        //         } else {
+        //             scrollbar_text.push(Line::from(" "));
+        //         }
+        //     }
 
-            let scrollbar_paragraph =
-                Paragraph::new(Text::from(scrollbar_text)).block(
-                    Block::default()
-                        .borders(Borders::LEFT | Borders::RIGHT)
-                        .border_set(border::THICK),
-                );
+        //     let scrollbar_paragraph =
+        //         Paragraph::new(Text::from(scrollbar_text)).block(
+        //             Block::default()
+        //                 .borders(Borders::LEFT | Borders::RIGHT)
+        //                 .border_set(border::THICK),
+        //         );
 
-            frame.render_widget(scrollbar_paragraph, message_chunks[1]);
-        } else {
-            // no scrollbar needed
-            let empty_scrollbar = Paragraph::new("").block(
-                Block::default()
-                    .borders(Borders::LEFT | Borders::RIGHT)
-                    .border_set(border::THICK),
-            );
-            frame.render_widget(empty_scrollbar, message_chunks[1]);
-        }
+        //     frame.render_widget(scrollbar_paragraph, message_chunks[1]);
+        // } else {
+        //     // no scrollbar needed
+        //     let empty_scrollbar = Paragraph::new("").block(
+        //         Block::default()
+        //             .borders(Borders::LEFT | Borders::RIGHT)
+        //             .border_set(border::THICK),
+        //     );
+        //     frame.render_widget(empty_scrollbar, message_chunks[1]);
+        // }
 
         if self.editing_context.focus == Focus::Messages {
             let relative_y = (self.messages_cursor as u16)
                 .saturating_sub(self.editing_context.scroll_offset);
-            let cursor_x = message_chunks[0].x + 1;
+
+            let message = messages
+                .get(self.messages_cursor)
+                .expect("message does not exist??");
+            let line_length =
+                message.text_content().expect("message is deleted").len();
+
+            let metadata_offset =
+                TIMESTAMP_LENGTH + message.metadata.username.len();
+            let relative_x = (self.editing_context.cursor_pos).min(line_length)
+                + metadata_offset;
+
+            let cursor_x = message_chunks[0].x + 1 + relative_x as u16;
             let cursor_y = message_chunks[0].y + 1 + relative_y;
             frame.set_cursor_position((cursor_x, cursor_y));
         }
@@ -227,15 +291,30 @@ impl App {
         area: Rect,
         available_width_for_text: u16,
     ) {
+        // We still highlight the input area if we are in Visual mode and
+        // focus=Input
+        let displayed_text = if self.editing_context.focus == Focus::Input
+            && matches!(self.editing_context.mode, vim::Mode::Visual)
+        {
+            render_text_with_selection(
+                &self.input,
+                self.visual_anchor.unwrap_or(0),
+                self.editing_context.cursor_pos,
+                None,
+            )
+        } else {
+            // regular text
+            Line::from(Span::raw(&self.input))
+        };
+
         let input_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(1), Constraint::Length(5)])
             .split(area);
 
-        let input_paragraph =
-            Paragraph::new(Text::from(Span::raw(&self.input)))
-                .block(Block::default().borders(Borders::ALL).title(" Input "))
-                .wrap(Wrap { trim: false });
+        let input_paragraph = Paragraph::new(Text::from(displayed_text))
+            .block(Block::default().borders(Borders::ALL).title(" Input "))
+            .wrap(Wrap { trim: false });
 
         let mode_span = self.mode_indicator_span();
         let mode_paragraph = Paragraph::new(mode_span)
@@ -296,6 +375,9 @@ impl App {
             vim::Mode::Insert => {
                 self.handle_key_event_insert_mode(messages, key_event)
             }
+            vim::Mode::Visual => {
+                self.handle_key_event_visual_mode(messages, key_event)
+            }
         }
     }
 
@@ -307,26 +389,10 @@ impl App {
     ) {
         match key_event.code {
             KeyCode::Char('j') => {
-                if self.editing_context.focus == Focus::Messages {
-                    if self.messages_cursor + 1 < messages.len() {
-                        self.messages_cursor += 1;
-                    } else {
-                        self.editing_context.focus = Focus::Input;
-                    }
-                }
+                self.scroll_down(messages, 1);
             }
             KeyCode::Char('k') => {
-                if self.editing_context.focus == Focus::Messages {
-                    if self.messages_cursor > 0 {
-                        self.messages_cursor -= 1;
-                    }
-                } else {
-                    // safe assumption, there should always be a message
-                    if !messages.is_empty() {
-                        self.messages_cursor = messages.len() - 1;
-                    }
-                    self.editing_context.focus = Focus::Messages;
-                }
+                self.scroll_up(messages, 1);
             }
             KeyCode::Char('q') => {
                 self.exit();
@@ -336,19 +402,51 @@ impl App {
                 self.command_buffer.clear();
                 return;
             }
+            KeyCode::Char('v') => {
+                self.editing_context.mode = vim::Mode::Visual;
+                self.visual_anchor = Some(self.editing_context.cursor_pos);
+                self.command_buffer.clear();
+                return;
+            }
+
             // Use the Vim engine for the rest
             KeyCode::Char(c) => {
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        self.editing_context.message_len = messages
+                            .get(self.messages_cursor)
+                            .unwrap()
+                            .text_content()
+                            .unwrap()
+                            .len();
+                    }
+                    Focus::Input => {
+                        self.editing_context.message_len = self.input.len();
+                    }
+                }
                 self.command_buffer.push(c);
             }
             _ => {}
         };
 
         if let Some(command) = self.command_buffer.parse() {
-            // Now parse the normal-mode buffer
+            let mut message_input = String::new();
+            if self.editing_context.focus == Focus::Messages {
+                message_input = messages
+                    .get(self.messages_cursor)
+                    .unwrap()
+                    .text_content()
+                    .unwrap()
+                    .to_string();
+            }
+
             self.editing_context.apply_command(
-                &mut self.input,
+                if let Focus::Input = self.editing_context.focus {
+                    &mut self.input
+                } else {
+                    &mut message_input // This isn't *really* mutable
+                },
                 &mut self.clipboard,
-                messages.len() as u16,
                 command,
             );
         }
@@ -387,6 +485,80 @@ impl App {
         }
     }
 
+    fn handle_key_event_visual_mode(
+        &mut self,
+        messages: &[chat::Entry],
+        key_event: KeyEvent,
+    ) {
+        match key_event.code {
+            KeyCode::Esc | KeyCode::Char('v') => {
+                self.editing_context.mode = vim::Mode::Normal;
+                self.visual_anchor = None;
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        self.editing_context.cursor_pos =
+                            self.editing_context.cursor_pos.saturating_sub(1);
+                    }
+                    Focus::Input => {
+                        self.editing_context.cursor_pos =
+                            self.editing_context.cursor_pos.saturating_sub(1);
+                    }
+                }
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        let line_length = messages
+                            .get(self.messages_cursor)
+                            .expect("message does not exist??")
+                            .text_content()
+                            .expect("message is deleted")
+                            .len();
+                        self.editing_context.cursor_pos =
+                            (self.editing_context.cursor_pos + 1)
+                                .min(line_length);
+                    }
+                    Focus::Input => {
+                        self.editing_context.cursor_pos =
+                            (self.editing_context.cursor_pos + 1)
+                                .min(self.input.len());
+                    }
+                }
+            }
+
+            KeyCode::Char('y') => {
+                match self.editing_context.focus {
+                    Focus::Messages => {
+                        self.yank_visual(
+                            messages
+                                .get(self.messages_cursor)
+                                .expect("message does not exist??")
+                                .text_content()
+                                .expect("message is deleted"),
+                        );
+                    }
+                    Focus::Input => {
+                        self.yank_visual(self.input.clone().as_str());
+                    }
+                }
+                self.editing_context.mode = vim::Mode::Normal;
+                self.visual_anchor = None;
+            }
+
+            KeyCode::Char('d') => {
+                if self.editing_context.focus == Focus::Input {
+                    self.delete_visual(self.input.clone().as_str());
+                }
+                self.editing_context.mode = vim::Mode::Normal;
+                self.visual_anchor = None;
+            }
+
+            _ => {}
+        }
+    }
+
     fn handle_mouse_event(
         &mut self,
         messages: &[chat::Entry],
@@ -394,7 +566,7 @@ impl App {
     ) {
         match mouse_event.kind {
             MouseEventKind::ScrollUp => {
-                self.scroll_up(1);
+                self.scroll_up(messages, 1);
             }
             MouseEventKind::ScrollDown => {
                 self.scroll_down(messages, 1);
@@ -412,7 +584,7 @@ impl App {
         if !trimmed.is_empty() {
             self.tx
                 .send(comms::ClientMessage::Post {
-                    username: "me".to_string(),
+                    username: "jeff".to_string(),
                     content: trimmed.to_string(),
                 })
                 .expect("channel closed on server");
@@ -430,19 +602,75 @@ impl App {
         self.editing_context.scroll_offset = total_lines.saturating_sub(1);
     }
 
-    fn scroll_up(&mut self, lines: u16) {
-        self.editing_context.scroll_offset =
-            self.editing_context.scroll_offset.saturating_sub(lines);
-        if self.messages_cursor as u16 >= self.editing_context.scroll_offset {
-            // keep the messages_cursor in sync if needed
+    fn scroll_up(&mut self, messages: &[chat::Entry], lines: usize) {
+        if self.messages_cursor == 0 {
+            self.tx
+                .send(comms::ClientMessage::Request {
+                    count: 50,
+                    up_to_slot_number: Some(
+                        messages
+                            .get(self.editing_context.scroll_offset as usize)
+                            .unwrap()
+                            .slot_number,
+                    ),
+                })
+                .expect("channel closed on server");
+        }
+
+        match self.editing_context.focus {
+            Focus::Messages => {
+                if self.messages_cursor > 0 {
+                    self.messages_cursor -= lines;
+                }
+            }
+            Focus::Input => {
+                if !messages.is_empty() {
+                    self.messages_cursor = messages.len() - lines;
+                }
+                self.editing_context.focus = Focus::Messages;
+            }
         }
     }
 
-    fn scroll_down(&mut self, messages: &[chat::Entry], lines: u16) {
-        let total_lines = messages.len() as u16;
-        self.editing_context.scroll_offset =
-            (self.editing_context.scroll_offset + lines)
-                .min(total_lines.saturating_sub(1));
+    fn scroll_down(&mut self, messages: &[chat::Entry], lines: usize) {
+        if self.editing_context.focus == Focus::Messages {
+            if self.messages_cursor + 1 < messages.len() {
+                self.messages_cursor += lines;
+            } else {
+                self.editing_context.focus = Focus::Input;
+                self.editing_context.cursor_pos = 0;
+            }
+        }
+    }
+
+    fn yank_visual(&mut self, text: &str) {
+        if let Some(anchor) = self.visual_anchor {
+            let (start, end) = if anchor <= self.editing_context.cursor_pos {
+                (anchor, self.editing_context.cursor_pos)
+            } else {
+                (self.editing_context.cursor_pos, anchor)
+            };
+            if start < end && end <= text.len() {
+                let selected = &text[start..end];
+                let _ = self.clipboard.set_contents(selected.to_string());
+            }
+        }
+    }
+
+    fn delete_visual(&mut self, text: &str) {
+        if let Some(anchor) = self.visual_anchor {
+            let (start, end) = if anchor <= self.editing_context.cursor_pos {
+                (anchor, self.editing_context.cursor_pos)
+            } else {
+                (self.editing_context.cursor_pos, anchor)
+            };
+            if start < end && end <= text.len() {
+                let selected = &text[start..end];
+                let _ = self.clipboard.set_contents(selected.to_string());
+                self.input.drain(start..end);
+                self.editing_context.cursor_pos = start;
+            }
+        }
     }
 
     fn update_cursor_shape(
@@ -462,6 +690,12 @@ impl App {
                     .backend_mut()
                     .execute(SetCursorStyle::BlinkingBar)?;
             }
+            vim::Mode::Visual => {
+                terminal.backend_mut().execute(DisableBlinking)?;
+                terminal
+                    .backend_mut()
+                    .execute(SetCursorStyle::SteadyUnderScore)?;
+            }
         }
         Ok(())
     }
@@ -475,23 +709,63 @@ impl App {
                         Style::default().fg(Color::Blue),
                     )
                 } else {
-                    let current_command_buffer = self.command_buffer.as_slice();
-                    let display_str = String::from_iter(
-                        &current_command_buffer
-                            [0..current_command_buffer.len().min(4)],
-                    );
+                    let mut display_str =
+                        self.command_buffer.current().to_string();
+                    if let Some(c) = self.command_buffer.peek(1) {
+                        display_str.push(c);
+                    }
                     let padded = format!("{:<4}", display_str);
 
-                    Span::styled(
-                        padded.to_string(),
-                        Style::default().fg(Color::Blue),
-                    )
+                    Span::styled(padded, Style::default().fg(Color::Blue))
                 }
             }
             vim::Mode::Insert => Span::styled(
                 " I ".to_string(),
                 Style::default().fg(Color::Green),
             ),
+            vim::Mode::Visual => Span::styled(
+                " V ".to_string(),
+                Style::default().fg(Color::Magenta),
+            ),
         }
     }
+}
+
+/// A helper function to render text with a highlighted region (for Visual
+/// mode). We can use this for either the `input` string or the currently
+/// focused message line. This returns a single [`Line`] so it’s most suitable
+/// for single-line text.
+fn render_text_with_selection(
+    text: &str,
+    anchor: usize,
+    cursor_pos: usize,
+    message_username_length: Option<usize>,
+) -> Line<'static> {
+    let mut offset: usize = 0;
+    if let Some(length) = message_username_length {
+        offset = length + TIMESTAMP_LENGTH + 1;
+    };
+
+    let (start, end) = if anchor <= cursor_pos {
+        (anchor + offset, cursor_pos + offset)
+    } else {
+        (cursor_pos + offset, anchor + offset)
+    };
+
+    if start >= end || end > text.len() {
+        return Line::from(Span::raw(text.to_string()));
+    }
+
+    let before = text[..start].to_string();
+    let selected = text[start..end].to_string();
+    let after = text[end..].to_string();
+
+    Line::from(vec![
+        Span::raw(before),
+        Span::styled(
+            selected,
+            Style::default().bg(Color::LightBlue).fg(Color::Black),
+        ),
+        Span::raw(after),
+    ])
 }
