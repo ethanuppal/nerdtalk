@@ -23,7 +23,7 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::vim;
 
-const TIMESTAMP_LEN: usize = 34;
+const TIMESTAMP_LENGTH: usize = 34;
 
 /// Indicates which part of the UI is currently in “focus.”
 #[derive(Debug, PartialEq)]
@@ -275,7 +275,7 @@ impl App {
                 message.text_content().expect("message is deleted").len();
 
             let metadata_offset =
-                TIMESTAMP_LEN + message.metadata.username.len();
+                TIMESTAMP_LENGTH + message.metadata.username.len();
             let relative_x = (self.editing_context.cursor_pos).min(line_length)
                 + metadata_offset;
 
@@ -429,9 +429,9 @@ impl App {
         };
 
         if let Some(command) = self.command_buffer.parse() {
-            let mut msg_input = String::new();
+            let mut message_input = String::new();
             if self.editing_context.focus == Focus::Messages {
-                msg_input = messages
+                message_input = messages
                     .get(self.messages_cursor)
                     .unwrap()
                     .text_content()
@@ -443,7 +443,7 @@ impl App {
                 if let Focus::Input = self.editing_context.focus {
                     &mut self.input
                 } else {
-                    &mut msg_input // This isn't *really* mutable
+                    &mut message_input // This isn't *really* mutable
                 },
                 &mut self.clipboard,
                 command,
@@ -509,14 +509,14 @@ impl App {
             KeyCode::Right | KeyCode::Char('l') => {
                 match self.editing_context.focus {
                     Focus::Messages => {
-                        let line_len = messages
+                        let line_length = messages
                             .get(self.messages_cursor)
                             .expect("message does not exist??")
                             .text_content()
                             .expect("message is deleted")
                             .len();
                         self.editing_context.cursor_pos =
-                            (self.editing_context.cursor_pos + 1).min(line_len);
+                            (self.editing_context.cursor_pos + 1).min(line_length);
                     }
                     Focus::Input => {
                         self.editing_context.cursor_pos =
@@ -737,13 +737,11 @@ fn render_text_with_selection(
     text: &str,
     anchor: usize,
     cursor_pos: usize,
-    message_username_len: Option<usize>,
+    message_username_length: Option<usize>,
 ) -> Line<'static> {
-    // if message_username_len is Some, we set the offset to that value + TIMESTAMP_LEN
-    // otherwise, we set it to 0
     let mut offset: usize = 0;
-    if let Some(len) = message_username_len {
-        offset = len + TIMESTAMP_LEN + 1;
+    if let Some(length) = message_username_length {
+        offset = length + TIMESTAMP_LENGTH + 1;
     };
 
     let (start, end) = if anchor <= cursor_pos {

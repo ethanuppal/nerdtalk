@@ -176,7 +176,7 @@ impl CommandBuffer {
             _ => {}
         }
 
-        let cmd = match c {
+        let command = match c {
             'i' => Some(SingleCommand::Edit(Edit::Insert)),
             'I' => Some(SingleCommand::Edit(Edit::InsertSOL)),
             'a' => Some(SingleCommand::Edit(Edit::Append)),
@@ -197,7 +197,7 @@ impl CommandBuffer {
             '$' => Some(SingleCommand::Motion(Motion::EndFile)),
             _ => None,
         };
-        cmd.map(|sc| (sc, 1))
+        command.map(|sc| (sc, 1))
     }
 
     fn parse_multi_command(&mut self) -> Option<(MultiCommand, usize)> {
@@ -319,7 +319,7 @@ impl EditingContext {
             // -----------------------------
             // SingleCommand actions
             // -----------------------------
-            Command::SingleCommand(single_cmd) => match single_cmd {
+            Command::SingleCommand(single_command) => match single_command {
                 SingleCommand::Edit(edit) => {
                     if self.focus == Focus::Input {
                         match edit {
