@@ -15,6 +15,7 @@ static ABBREVIATIONS: sync::LazyLock<HashMap<&str, Vec<&str>>> =
             ("cmd", vec!["command"]),
             ("beg", vec!["begin", "beginning"]),
             ("jeff", vec!["rust_enjoyer"]),
+            ("len", vec!["length"]),
         ])
     });
 
