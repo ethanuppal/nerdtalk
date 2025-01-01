@@ -446,7 +446,6 @@ impl App {
                     &mut msg_input // This isn't *really* mutable
                 },
                 &mut self.clipboard,
-                messages.len() as u16,
                 command,
             );
         }
