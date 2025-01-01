@@ -27,5 +27,6 @@ jobs:
         run: rustup toolchain install nightly --allow-downgrade -c rustfmt
       - name: Lint
         run: cargo clippy --all --all-targets -- --deny warnings
+        run: cargo xtask-lint --deny-warnings
       - name: Check formatting
         run: cargo +nightly fmt --check

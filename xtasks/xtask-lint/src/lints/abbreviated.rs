@@ -1,15 +1,13 @@
 use std::{collections::HashMap, sync};
 
-use annotate_snippets::{Level, Renderer, Snippet};
+use annotate_snippets::Level;
 use proc_macro2::Span;
 use syn::spanned::Spanned;
 
-use super::WithRenderer;
+use super::{DiagnosticContext, WithDiagnosticContext};
 
 pub struct Abbreviated<'a> {
-    renderer: &'a Renderer,
-    path: &'a str,
-    source: &'a str,
+    context: DiagnosticContext<'a>,
 }
 
 static ABBREVIATIONS: sync::LazyLock<HashMap<&str, Vec<&str>>> =
@@ -18,6 +16,7 @@ static ABBREVIATIONS: sync::LazyLock<HashMap<&str, Vec<&str>>> =
             ("msg", vec!["message"]),
             ("cmd", vec!["command"]),
             ("beg", vec!["begin", "beginning"]),
+            ("jeff", vec!["rust_enjoyer"]),
         ])
     });
 
@@ -61,8 +60,9 @@ fn split_by_case(str: &str, case: Case) -> Vec<(usize, String)> {
 }
 
 impl Abbreviated<'_> {
-    fn check_words(&mut self, span: Span, ident: &str, case: Case) {
-        for (relative_start, word) in split_by_case(ident, case) {
+    fn check_words(&mut self, ident: &syn::Ident, case: Case) {
+        let span = ident.span();
+        for (relative_start, word) in split_by_case(&ident.to_string(), case) {
             if let Some(replacements) = ABBREVIATIONS.get(word.as_str()) {
                 assert!(!replacements.is_empty());
 
@@ -74,7 +74,7 @@ impl Abbreviated<'_> {
                     .map(|replacement| {
                         let mut result = format!("`{}`", replacement);
                         if matches!(case, Case::Pascal) {
-                            if let Some(first) = result.get_mut(0..1) {
+                            if let Some(first) = result.get_mut(1..2) {
                                 first.make_ascii_uppercase();
                             }
                         }
@@ -95,68 +95,70 @@ impl Abbreviated<'_> {
                     }
                 };
 
-                println!(
-                    "{}",
-                    self.renderer.render(
-                        Level::Warning.title("potential abbreviation").snippet(
-                            Snippet::source(self.source)
-                                .line_start(span.start().line)
-                                .origin(self.path)
-                                .fold(true)
-                                .annotation(
-                                    Level::Help.span(span_range).label(
-                                        &format!(
-                                            "Consider using {} instead",
-                                            replacements_string
-                                        ),
-                                    )
+                self.context.print(
+                    Level::Warning.title("potential abbreviation").snippet(
+                        self.context
+                            .new_snippet()
+                            .line_start(span.start().line)
+                            .fold(true)
+                            .annotation(Level::Help.span(span_range).label(
+                                &format!(
+                                    "Consider using {} instead",
+                                    replacements_string
                                 ),
-                        ),
-                    )
+                            )),
+                    ),
                 );
             }
         }
     }
 }
 
+// check all user-defined name sites
+
 impl<'ast> syn::visit::Visit<'ast> for Abbreviated<'_> {
     fn visit_item_fn(&mut self, function: &'ast syn::ItemFn) {
-        let function_name = function.sig.ident.to_string();
-        self.check_words(function.span(), &function_name, Case::Snake);
+        self.check_words(&function.sig.ident, Case::Snake);
         syn::visit::visit_item_fn(self, function);
     }
-    fn visit_type_path(&mut self, type_path: &'ast syn::TypePath) {
-        let type_name = type_path
-            .path
-            .segments
-            .last()
-            .expect("empty path")
-            .ident
-            .to_string();
-        self.check_words(type_path.span(), &type_name, Case::Pascal);
+
+    fn visit_item_struct(&mut self, item_struct: &'ast syn::ItemStruct) {
+        self.check_words(&item_struct.ident, Case::Pascal);
+        syn::visit::visit_item_struct(self, item_struct);
     }
 
-    fn visit_path(&mut self, path: &'ast syn::Path) {
-        let ident = path.segments.last().expect("empty path").ident.to_string();
-        self.check_words(path.span(), &ident, Case::Snake);
+    fn visit_item_enum(&mut self, item_enum: &'ast syn::ItemEnum) {
+        self.check_words(&item_enum.ident, Case::Pascal);
+        syn::visit::visit_item_enum(self, item_enum);
     }
 
-    fn visit_ident(&mut self, ident: &'ast proc_macro2::Ident) {
-        let ident_string = ident.to_string();
-        self.check_words(ident.span(), &ident_string, Case::Snake);
+    fn visit_item_type(&mut self, item_type: &'ast syn::ItemType) {
+        self.check_words(&item_type.ident, Case::Pascal);
+        syn::visit::visit_item_type(self, item_type);
+    }
+
+    fn visit_item_const(&mut self, item_const: &'ast syn::ItemConst) {
+        self.check_words(&item_const.ident, Case::Snake);
+        syn::visit::visit_item_const(self, item_const);
+    }
+
+    fn visit_item_static(&mut self, item_static: &'ast syn::ItemStatic) {
+        self.check_words(&item_static.ident, Case::Snake);
+        syn::visit::visit_item_static(self, item_static);
+    }
+
+    fn visit_pat_ident(&mut self, ident_pattern: &'ast syn::PatIdent) {
+        self.check_words(&ident_pattern.ident, Case::Snake);
+        syn::visit::visit_pat_ident(self, ident_pattern);
     }
 }
 
-impl<'a> WithRenderer<'a> for Abbreviated<'a> {
-    fn with_renderer(
-        renderer: &'a Renderer,
-        path: &'a str,
-        source: &'a str,
+impl<'a> WithDiagnosticContext<'a> for Abbreviated<'a> {
+    fn with_diagnostic_context(
+        diagnostic_context: DiagnosticContext<'a>,
     ) -> Self {
         Self {
-            renderer,
-            path,
-            source,
+            context: diagnostic_context,
         }
     }
 }

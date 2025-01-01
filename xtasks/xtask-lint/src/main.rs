@@ -1,7 +1,10 @@
 use std::{
-    fs, io,
+    cell::RefCell,
+    env, fs, io,
     path::{Path, PathBuf},
-    process, str,
+    process,
+    rc::Rc,
+    str,
 };
 
 use annotate_snippets::Renderer;
@@ -19,13 +22,18 @@ fn workspace_toml() -> PathBuf {
     PathBuf::from(std::str::from_utf8(&output).unwrap().trim())
 }
 
-fn process_source_file(renderer: &Renderer, path: &Path) -> io::Result<()> {
+fn process_source_file(
+    emitted: Rc<RefCell<bool>>,
+    renderer: &Renderer,
+    path: &Path,
+) -> io::Result<()> {
     let path_string = path.as_os_str().to_string_lossy().into_owned();
     let bytes = fs::read(path)?;
     let source = str::from_utf8(&bytes).map_err(io::Error::other)?;
     let ast = syn::parse_file(source).map_err(io::Error::other)?;
 
     lints::apply::<lints::abbreviated::Abbreviated>(
+        emitted,
         renderer,
         &path_string,
         source,
@@ -38,12 +46,18 @@ fn process_source_file(renderer: &Renderer, path: &Path) -> io::Result<()> {
 fn main() -> io::Result<()> {
     env_logger::init_from_env("LOG");
 
+    let warnings_are_errors = env::args()
+        .nth(1)
+        .map(|arg| arg.as_str() == "--deny-warnings")
+        .unwrap_or_default();
+
     let global_context = cargo::GlobalContext::default().unwrap();
     let workspace =
         cargo::core::Workspace::new(&workspace_toml(), &global_context)
             .unwrap();
 
     let renderer = Renderer::styled();
+    let emitted = Rc::new(RefCell::new(false));
 
     for package in workspace.members() {
         let source = cargo::sources::PathSource::new(
@@ -63,10 +77,17 @@ fn main() -> io::Result<()> {
                     "processing file: {}",
                     source_file.to_string_lossy()
                 );
-                process_source_file(&renderer, &source_file)?;
+                process_source_file(emitted.clone(), &renderer, &source_file)?;
             }
         }
     }
 
-    Ok(())
+    if warnings_are_errors && *emitted.borrow() {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Some linting messages were produced",
+        ))
+    } else {
+        Ok(())
+    }
 }
