@@ -266,7 +266,7 @@ impl EditingContext {
             // -----------------------------
             // SingleCommand actions
             // -----------------------------
-            Command::SingleCommand(single_cmd) => match single_cmd {
+            Command::SingleCommand(single_command) => match single_command {
                 SingleCommand::Insert
                 | SingleCommand::Append
                 | SingleCommand::AppendEOL
@@ -275,7 +275,7 @@ impl EditingContext {
                 | SingleCommand::Paste
                     if self.focus == Focus::Input =>
                 {
-                    match single_cmd {
+                    match single_command {
                         SingleCommand::Insert => {
                             self.mode = Mode::Insert;
                         }
@@ -348,7 +348,7 @@ impl EditingContext {
                 | SingleCommand::BackwardBigWord => {
                     if self.focus == Focus::Input {
                         // Old logic for input
-                        match single_cmd {
+                        match single_command {
                             SingleCommand::ForwardWord => {
                                 self.cursor_pos = find_next_word_boundary(
                                     text,
@@ -397,10 +397,10 @@ impl EditingContext {
             // -----------------------------
             // MultiCommand actions
             // -----------------------------
-            Command::MultiCommand(multi_cmd) => {
+            Command::MultiCommand(multi_command) => {
                 if self.focus == Focus::Input {
                     // Normal input editing
-                    match multi_cmd {
+                    match multi_command {
                         MultiCommand::Delete(noun) => {
                             delete_helper(
                                 &mut self.cursor_pos,
