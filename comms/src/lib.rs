@@ -1,20 +1,20 @@
-pub use bincode::{Error as CodingError, ErrorKind as CodingErrorKind};
 use chat::Entry;
 use serde::{Deserialize, Serialize};
+pub use serde_json::Error as CodingError;
 
 pub trait Codable {
     fn to_bytes(&self) -> Vec<u8>
     where
         Self: Serialize,
     {
-        bincode::serialize(self).expect("failed to serialize data")
+        serde_json::to_vec(self).expect("failed to serialize data")
     }
 
     fn try_from_bytes<'a>(bytes: &'a [u8]) -> Result<Self, CodingError>
     where
         Self: Deserialize<'a>,
     {
-        bincode::deserialize(bytes)
+        serde_json::from_slice(bytes)
     }
 }
 
