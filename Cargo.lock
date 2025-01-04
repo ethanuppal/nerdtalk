@@ -3,6 +3,23 @@
 version = 3
 
 [[package]]
+name = "NerdTalk"
+version = "0.0.0"
+dependencies = [
+ "client-connect",
+ "comms",
+ "futures-channel",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tokio",
+ "tokio-rustls",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2674,19 +2691,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys",
-]
-
-[[package]]
-name = "nerdtalk"
-version = "0.0.0"
-dependencies = [
- "client-connect",
- "comms",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
 ]
 
 [[package]]
