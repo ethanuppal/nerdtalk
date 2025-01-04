@@ -23,7 +23,7 @@ pub enum ClientConnectionError {
     },
     WebSocketFailure(tungstenite::Error),
     UnexpectedWebSocketMessage(Message),
-    MalformedServerMessage(Message, comms::CodingErrorKind),
+    MalformedServerMessage(Message, comms::CodingError),
 }
 
 impl fmt::Display for ClientConnectionError {
@@ -155,7 +155,7 @@ async fn client_actor(
                             .map_err(|coding_error| {
                                 ClientConnectionError::MalformedServerMessage(
                                     message,
-                                    *coding_error,
+                                    coding_error,
                                 )
                             });
                         user_tx.send(server_message).expect(
