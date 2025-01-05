@@ -27,8 +27,12 @@ Edit/Insert:
 
 Text objects (iw, etc.)
 
+Visual mode
+
+Undo
+
 ## In-Progress/Future
-- visual mode
+- redo (proper keybind, functionality works with `R`)
 - / for search (waiting on API)
 
 ## Not Planned (atm)

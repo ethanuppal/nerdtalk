@@ -43,6 +43,8 @@ pub enum Edit {
     DeleteChar,
     DeleteEOL,
     Paste,
+    Undo,
+    Redo,
 }
 
 /// A Vim "Noun". This is the object following a verb (e.g. `dw`, `ciw`).
@@ -195,6 +197,8 @@ impl CommandBuffer {
             'e' => Some(SingleCommand::Motion(Motion::EndWord)),
             '0' => Some(SingleCommand::Motion(Motion::StartFile)),
             '$' => Some(SingleCommand::Motion(Motion::EndFile)),
+            'u' => Some(SingleCommand::Edit(Edit::Undo)),
+            'R' => Some(SingleCommand::Edit(Edit::Redo)), // This is a temporary bind, eventually it'll be <C-r>
             _ => None,
         };
         command.map(|sc| (sc, 1))
@@ -203,7 +207,8 @@ impl CommandBuffer {
     fn parse_multi_command(&mut self) -> Option<(MultiCommand, usize)> {
         match self.current() {
             'C' => Some((MultiCommand::ChangeEOL, 2)),
-            'r' | 'R' => Some((MultiCommand::Replace(self.peek(1)?), 2)),
+            // 'r' | 'R' => Some((MultiCommand::Replace(self.peek(1)?), 2)), this'll return after <C-r> is implemented
+            'r' => Some((MultiCommand::Replace(self.peek(1)?), 2)),
             _ => self.parse_multi_command_with_noun(),
         }
     }
@@ -290,7 +295,8 @@ pub struct EditingContext {
     pub cursor_pos: usize,
     pub scroll_offset: u16,
     pub message_len: usize,
-    _undo_stack: Vec<String>,
+    undo_stack: Vec<String>,
+    redo_stack: Vec<String>,
 }
 
 impl Default for EditingContext {
@@ -301,7 +307,8 @@ impl Default for EditingContext {
             scroll_offset: 0,
             cursor_pos: 0,
             message_len: 0,
-            _undo_stack: Vec::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         }
     }
 }
@@ -315,6 +322,36 @@ impl EditingContext {
         clipboard: &mut ClipboardContext,
         command: Command,
     ) {
+        let modifies_text = match &command {
+            Command::SingleCommand(sc) => match sc {
+                SingleCommand::Edit(Edit::Insert)
+                | SingleCommand::Edit(Edit::Append)
+                | SingleCommand::Edit(Edit::InsertSOL)
+                | SingleCommand::Edit(Edit::AppendEOL)
+                | SingleCommand::Edit(Edit::DeleteChar)
+                | SingleCommand::Edit(Edit::DeleteEOL)
+                | SingleCommand::Edit(Edit::Paste) => true,
+
+                SingleCommand::Edit(Edit::Undo)
+                | SingleCommand::Edit(Edit::Redo) => false,
+
+                _ => false,
+            },
+
+            Command::MultiCommand(mc) => match mc {
+                MultiCommand::Delete(_)
+                | MultiCommand::Change(_)
+                | MultiCommand::ChangeEOL
+                | MultiCommand::Replace(_) => true,
+
+                MultiCommand::Yank(_) => false,
+            },
+        };
+
+        if modifies_text {
+            self.push_undo_state(text);
+        }
+
         match command {
             // -----------------------------
             // SingleCommand actions
@@ -364,6 +401,24 @@ impl EditingContext {
                                         &clip_text,
                                     );
                                     self.cursor_pos += clip_text.len();
+                                }
+                            }
+                            Edit::Undo => {
+                                if let Some(prev_state) = self.undo_stack.pop()
+                                {
+                                    self.redo_stack.push(text.clone());
+                                    *text = prev_state;
+                                    self.cursor_pos =
+                                        text.len().min(self.cursor_pos);
+                                }
+                            }
+                            Edit::Redo => {
+                                if let Some(next_state) = self.redo_stack.pop()
+                                {
+                                    self.undo_stack.push(text.clone());
+                                    *text = next_state;
+                                    self.cursor_pos =
+                                        text.len().min(self.cursor_pos);
                                 }
                             }
                         }
@@ -508,6 +563,13 @@ impl EditingContext {
                 }
             }
         }
+    }
+
+    /// Push the current `text` onto the undo stack.
+    /// Typically call this *before* modifying `text`.
+    fn push_undo_state(&mut self, text: &str) {
+        self.undo_stack.push(text.to_string());
+        self.redo_stack.clear();
     }
 }
 
