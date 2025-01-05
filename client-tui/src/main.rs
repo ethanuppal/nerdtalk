@@ -17,7 +17,7 @@ async fn main() -> Result<(), io::Error> {
     let app_messages = messages.clone();
 
     tx.send(comms::ClientMessage::Request {
-        client_id: comms::ClientId::unique_per_client(),
+        client_id: comms::ClientId::new_unique_per_client(),
         count: 50,
         up_to_slot_number: None,
     })
