@@ -17,6 +17,7 @@ async fn main() -> Result<(), io::Error> {
     let app_messages = messages.clone();
 
     tx.send(comms::ClientMessage::Request {
+        client_id: comms::ClientId::unique_per_client(),
         count: 50,
         up_to_slot_number: None,
     })
@@ -34,7 +35,10 @@ async fn main() -> Result<(), io::Error> {
                         break;
                     }
                 },
-                comms::ServerMessage::EntryRange(entries) => {
+                comms::ServerMessage::EntryRange {
+                    client_id: _,
+                    entries,
+                } => {
                     if !entries.is_empty() {
                         // since we don't have to worry about updates until
                         // v0.2, this is going to be
