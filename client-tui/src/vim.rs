@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use copypasta::{ClipboardContext, ClipboardProvider};
+use crossterm::event::KeyModifiers;
 use regex::Regex;
 
 use crate::app::Focus;
@@ -90,10 +91,12 @@ pub enum Command {
     MultiCommand(MultiCommand),
 }
 
+type KeyPress = (char, KeyModifiers);
+
 /// Simple [`VimCommand`] parser. Tracks an optional (pending) operator (e.g.
 /// `d`, `c`, `y`).
 pub struct CommandBuffer {
-    chars: VecDeque<char>,
+    chars: VecDeque<KeyPress>,
 }
 
 impl Default for CommandBuffer {
@@ -109,7 +112,7 @@ impl CommandBuffer {
         self.chars.is_empty()
     }
 
-    pub fn push(&mut self, input: char) {
+    pub fn push(&mut self, input: KeyPress) {
         self.chars.push_back(input);
     }
 
@@ -117,7 +120,7 @@ impl CommandBuffer {
         self.chars.clear();
     }
 
-    pub fn as_slice(&self) -> &[char] {
+    pub fn as_slice(&self) -> &[KeyPress] {
         self.chars.as_slices().0
     }
 
@@ -144,32 +147,34 @@ impl CommandBuffer {
 
     /// Attempt to parse a SingleCommand. Return `(command, length_consumed)`.
     fn parse_single_command(&mut self) -> Option<(SingleCommand, usize)> {
-        let c = self.current();
+        let current = self.current();
 
-        match c {
+        let char = current.0;
+
+        match char {
             'f' => {
-                let ch = self.peek(1)?;
+                let ch = self.peek_char(1)?;
                 return Some((
                     SingleCommand::Motion(Motion::FindCharForward(ch)),
                     2,
                 ));
             }
             'F' => {
-                let ch = self.peek(1)?;
+                let ch = self.peek_char(1)?;
                 return Some((
                     SingleCommand::Motion(Motion::FindCharBackward(ch)),
                     2,
                 ));
             }
             't' => {
-                let ch = self.peek(1)?;
+                let ch = self.peek_char(1)?;
                 return Some((
                     SingleCommand::Motion(Motion::TillCharForward(ch)),
                     2,
                 ));
             }
             'T' => {
-                let ch = self.peek(1)?;
+                let ch = self.peek_char(1)?;
                 return Some((
                     SingleCommand::Motion(Motion::TillCharBackward(ch)),
                     2,
@@ -178,37 +183,39 @@ impl CommandBuffer {
             _ => {}
         }
 
-        let command = match c {
-            'i' => Some(SingleCommand::Edit(Edit::Insert)),
-            'I' => Some(SingleCommand::Edit(Edit::InsertSOL)),
-            'a' => Some(SingleCommand::Edit(Edit::Append)),
-            'A' => Some(SingleCommand::Edit(Edit::AppendEOL)),
-            'x' => Some(SingleCommand::Edit(Edit::DeleteChar)),
-            'D' => Some(SingleCommand::Edit(Edit::DeleteEOL)),
-            'p' => Some(SingleCommand::Edit(Edit::Paste)),
-            'h' => Some(SingleCommand::Motion(Motion::Left)),
-            'l' => Some(SingleCommand::Motion(Motion::Right)),
-            'j' => Some(SingleCommand::Motion(Motion::Down)),
-            'k' => Some(SingleCommand::Motion(Motion::Up)),
-            'w' => Some(SingleCommand::Motion(Motion::ForwardWord)),
-            'W' => Some(SingleCommand::Motion(Motion::ForwardBigWord)),
-            'b' => Some(SingleCommand::Motion(Motion::BackwardWord)),
-            'B' => Some(SingleCommand::Motion(Motion::BackwardBigWord)),
-            'e' => Some(SingleCommand::Motion(Motion::EndWord)),
-            '0' => Some(SingleCommand::Motion(Motion::StartFile)),
-            '$' => Some(SingleCommand::Motion(Motion::EndFile)),
-            'u' => Some(SingleCommand::Edit(Edit::Undo)),
-            'R' => Some(SingleCommand::Edit(Edit::Redo)), // This is a temporary bind, eventually it'll be <C-r>
+        let command = match current {
+            ('i', _) => Some(SingleCommand::Edit(Edit::Insert)),
+            ('I', _) => Some(SingleCommand::Edit(Edit::InsertSOL)),
+            ('a', _) => Some(SingleCommand::Edit(Edit::Append)),
+            ('A', _) => Some(SingleCommand::Edit(Edit::AppendEOL)),
+            ('x', _) => Some(SingleCommand::Edit(Edit::DeleteChar)),
+            ('D', _) => Some(SingleCommand::Edit(Edit::DeleteEOL)),
+            ('p', _) => Some(SingleCommand::Edit(Edit::Paste)),
+            ('h', _) => Some(SingleCommand::Motion(Motion::Left)),
+            ('l', _) => Some(SingleCommand::Motion(Motion::Right)),
+            ('j', _) => Some(SingleCommand::Motion(Motion::Down)),
+            ('k', _) => Some(SingleCommand::Motion(Motion::Up)),
+            ('w', _) => Some(SingleCommand::Motion(Motion::ForwardWord)),
+            ('W', _) => Some(SingleCommand::Motion(Motion::ForwardBigWord)),
+            ('b', _) => Some(SingleCommand::Motion(Motion::BackwardWord)),
+            ('B', _) => Some(SingleCommand::Motion(Motion::BackwardBigWord)),
+            ('e', _) => Some(SingleCommand::Motion(Motion::EndWord)),
+            ('0', _) => Some(SingleCommand::Motion(Motion::StartFile)),
+            ('$', _) => Some(SingleCommand::Motion(Motion::EndFile)),
+            ('u', _) => Some(SingleCommand::Edit(Edit::Undo)),
+            ('r', KeyModifiers::CONTROL) => {
+                Some(SingleCommand::Edit(Edit::Redo))
+            }
             _ => None,
         };
+
         command.map(|sc| (sc, 1))
     }
 
     fn parse_multi_command(&mut self) -> Option<(MultiCommand, usize)> {
-        match self.current() {
+        match self.current_char() {
             'C' => Some((MultiCommand::ChangeEOL, 2)),
-            // 'r' | 'R' => Some((MultiCommand::Replace(self.peek(1)?), 2)), this'll return after <C-r> is implemented
-            'r' => Some((MultiCommand::Replace(self.peek(1)?), 2)),
+            'r' | 'R' => Some((MultiCommand::Replace(self.peek(1)?.0), 2)),
             _ => self.parse_multi_command_with_noun(),
         }
     }
@@ -217,7 +224,7 @@ impl CommandBuffer {
         &mut self,
     ) -> Option<(MultiCommand, usize)> {
         let (noun, noun_length) = self.peek_noun()?;
-        match self.current() {
+        match self.current_char() {
             'd' => Some((MultiCommand::Delete(noun), noun_length + 1)),
             'c' => Some((MultiCommand::Change(noun), noun_length + 1)),
             'y' => Some((MultiCommand::Yank(noun), noun_length + 1)),
@@ -227,7 +234,7 @@ impl CommandBuffer {
 
     fn peek_noun(&self) -> Option<(Noun, usize)> {
         // The first char after the operator
-        let c1 = self.peek(1)?;
+        let c1 = self.peek(1)?.0;
 
         match c1 {
             'w' => Some((Noun::Motion(Motion::ForwardWord), 1)),
@@ -239,22 +246,22 @@ impl CommandBuffer {
             'j' => Some((Noun::Motion(Motion::Down), 1)),
             'k' => Some((Noun::Motion(Motion::Up), 1)),
             'f' => {
-                let ch = self.peek(2)?;
+                let ch = self.peek(2)?.0;
                 Some((Noun::Motion(Motion::FindCharForward(ch)), 2))
             }
             'F' => {
-                let ch = self.peek(2)?;
+                let ch = self.peek(2)?.0;
                 Some((Noun::Motion(Motion::FindCharBackward(ch)), 2))
             }
             't' => {
-                let ch = self.peek(2)?;
+                let ch = self.peek(2)?.0;
                 Some((Noun::Motion(Motion::TillCharForward(ch)), 2))
             }
             'T' => {
-                let ch = self.peek(2)?;
+                let ch = self.peek(2)?.0;
                 Some((Noun::Motion(Motion::TillCharBackward(ch)), 2))
             }
-            'i' => match self.peek(2)? {
+            'i' => match self.peek(2)?.0 {
                 'w' => Some((Noun::InnerWord, 2)),
                 'W' => Some((Noun::InnerBigWord, 2)),
                 's' => Some((Noun::Sentence, 2)),
@@ -271,14 +278,26 @@ impl CommandBuffer {
         }
     }
 
-    pub fn current(&self) -> char {
+    /// Use this if you need the keymodifier
+    pub fn current(&self) -> KeyPress {
         self.peek(0).unwrap()
+    }
+
+    /// Use this if you just need the character
+    pub fn current_char(&self) -> char {
+        self.peek(0).unwrap().0
     }
 
     /// The `ahead`th zero-indexed character from the current position.
     /// `self.current()` is equivalent to `self.peek(0).unwrap()`.
-    pub fn peek(&self, ahead: usize) -> Option<char> {
+    pub fn peek(&self, ahead: usize) -> Option<KeyPress> {
         self.chars.get(ahead).cloned()
+    }
+
+    /// The `ahead`th zero-indexed character from the current position.
+    /// `self.current()` is equivalent to `self.peek(0).unwrap()`.
+    pub fn peek_char(&self, ahead: usize) -> Option<char> {
+        self.chars.get(ahead).map(|(c, _)| *c)
     }
 
     fn advance(&mut self, count: usize) {

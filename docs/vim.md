@@ -29,10 +29,9 @@ Text objects (iw, etc.)
 
 Visual mode
 
-Undo
+Undo/Redo
 
 ## In-Progress/Future
-- redo (proper keybind, functionality works with `R`)
 - / for search (waiting on API)
 
 ## Not Planned (atm)

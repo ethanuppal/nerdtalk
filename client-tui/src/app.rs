@@ -6,7 +6,7 @@ use copypasta::{ClipboardContext, ClipboardProvider};
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, SetCursorStyle},
     event::{
-        self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent,
+        self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent,
         MouseEventKind,
     },
     ExecutableCommand,
@@ -387,22 +387,22 @@ impl App {
         messages: &[chat::Entry],
         key_event: KeyEvent,
     ) {
-        match key_event.code {
-            KeyCode::Char('j') => {
+        match (key_event.code, key_event.modifiers) {
+            (KeyCode::Char('j'), KeyModifiers::NONE) => {
                 self.scroll_down(messages, 1);
             }
-            KeyCode::Char('k') => {
+            (KeyCode::Char('k'), KeyModifiers::NONE) => {
                 self.scroll_up(messages, 1);
             }
-            KeyCode::Char('q') => {
+            (KeyCode::Char('q'), KeyModifiers::NONE) => {
                 self.exit();
                 return;
             }
-            KeyCode::Esc => {
+            (KeyCode::Esc, KeyModifiers::NONE) => {
                 self.command_buffer.clear();
                 return;
             }
-            KeyCode::Char('v') => {
+            (KeyCode::Char('v'), KeyModifiers::NONE) => {
                 self.editing_context.mode = vim::Mode::Visual;
                 self.visual_anchor = Some(self.editing_context.cursor_pos);
                 self.command_buffer.clear();
@@ -410,7 +410,7 @@ impl App {
             }
 
             // Use the Vim engine for the rest
-            KeyCode::Char(c) => {
+            (KeyCode::Char(c), key_modifier) => {
                 match self.editing_context.focus {
                     Focus::Messages => {
                         self.editing_context.message_len = messages
@@ -424,7 +424,7 @@ impl App {
                         self.editing_context.message_len = self.input.len();
                     }
                 }
-                self.command_buffer.push(c);
+                self.command_buffer.push((c, key_modifier));
             }
             _ => {}
         };
@@ -710,8 +710,8 @@ impl App {
                     )
                 } else {
                     let mut display_str =
-                        self.command_buffer.current().to_string();
-                    if let Some(c) = self.command_buffer.peek(1) {
+                        self.command_buffer.current_char().to_string();
+                    if let Some(c) = self.command_buffer.peek_char(1) {
                         display_str.push(c);
                     }
                     let padded = format!("{:<4}", display_str);
