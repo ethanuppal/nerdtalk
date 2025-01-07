@@ -606,6 +606,7 @@ impl App {
         if self.messages_cursor == 0 {
             self.tx
                 .send(comms::ClientMessage::Request {
+                    client_id: comms::ClientId::new_unique_per_client(),
                     count: 50,
                     up_to_slot_number: Some(
                         messages
