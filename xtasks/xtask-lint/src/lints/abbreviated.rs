@@ -16,6 +16,12 @@ static ABBREVIATIONS: sync::LazyLock<HashMap<&str, Vec<&str>>> =
             ("beg", vec!["begin", "beginning"]),
             ("jeff", vec!["rust_enjoyer"]),
             ("len", vec!["length"]),
+            ("addr", vec!["address"]),
+            ("hdr", vec!["header"]),
+            ("resp", vec!["response"]),
+            ("conn", vec!["connect", "connection", "connector"]),
+            ("recv", vec!["receive", "receiver"]),
+            ("err", vec!["error"]),
         ])
     });
 
@@ -157,6 +163,11 @@ impl<'ast> syn::visit::Visit<'ast> for Abbreviated<'_> {
     fn visit_pat_ident(&mut self, ident_pattern: &'ast syn::PatIdent) {
         self.check_words(&ident_pattern.ident, Case::Snake);
         syn::visit::visit_pat_ident(self, ident_pattern);
+    }
+
+    fn visit_variant(&mut self, variant: &'ast syn::Variant) {
+        self.check_words(&variant.ident, Case::Pascal);
+        syn::visit::visit_variant(self, variant);
     }
 }
 
