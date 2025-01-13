@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/ethanuppal/nerdtalk/compare/v0.1.0...v0.2.0) (2025-01-13)
+
+
+### Features
+
+* **protocol:** Tag server entries reply with client id ([#53](https://github.com/ethanuppal/nerdtalk/issues/53)) ([8a87638](https://github.com/ethanuppal/nerdtalk/commit/8a8763890db986d461a3ad2a57b9f84a071711f4))
+
+
+### Miscellaneous Chores
+
+* Add LICENSE ([#54](https://github.com/ethanuppal/nerdtalk/issues/54)) ([6f3210b](https://github.com/ethanuppal/nerdtalk/commit/6f3210bb18efce4dd8911f49515ea7c4988e82cb))
+* **lints:** Add more abbreviation lints ([#55](https://github.com/ethanuppal/nerdtalk/issues/55)) ([a5afc56](https://github.com/ethanuppal/nerdtalk/commit/a5afc56ebd3c557ee7f3e394ba4e405c75437609))
+* **protocol:** Use JSON over bincode for passing data over websockets ([#51](https://github.com/ethanuppal/nerdtalk/issues/51)) ([102f446](https://github.com/ethanuppal/nerdtalk/commit/102f446103625e2a902fbad21544437ffe288ab9))
+
 ## 0.1.0 (2025-01-01)
 
 
