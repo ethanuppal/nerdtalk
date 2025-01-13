@@ -166,12 +166,14 @@ async fn main() -> Result<(), Error> {
                 }
             }
             comms::ClientMessage::Request {
+                client_id,
                 count,
                 up_to_slot_number,
             } => {
                 let entries = fake_chat_log.entries(count, up_to_slot_number);
-                sessions.read().await[&sender]
-                    .send(comms::ServerMessage::EntryRange(entries));
+                sessions.read().await[&sender].send(
+                    comms::ServerMessage::EntryRange { client_id, entries },
+                );
             }
         }
     }
@@ -254,16 +256,16 @@ async fn new_client_connection(
                                     match comms::ClientMessage::try_from_bytes(
                                         &message_bytes,
                                     ) {
-                                        Ok(client_request) => {
+                                        Ok(client_message) => {
                                             log::info!(
                                             "Received {:?} from client address {}",
-                                            client_request,
+                                           client_message ,
                                             client_address
                                         );
                                             message_tx
                                             .send((
                                                 client_address,
-                                                client_request,
+                                                client_message,
                                             ))
                                             .expect("Failed to queue client message for processing");
                                         }
